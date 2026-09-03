@@ -1,0 +1,382 @@
+/*******************************************************************
+ *  BOOK PACKING SYSTEM  —  Delhi Book Market
+ *  v6  (multi-order aware, smooth continuous scanning)
+ *
+ *  WHAT THIS VERSION FIXES / ADDS
+ *  1. Continuous scanning no longer jumps the cursor. There is no
+ *     onEdit popup or cell-jump anymore — every Scan row is pre-filled
+ *     with a formula, so a scan just lands and the row colours itself.
+ *     The scanner's own Enter moves you down one row, as normal.
+ *  2. Handles books that appear in TWO orders (e.g. a title in 322
+ *     AND OX2). Two copies arrive; the 1st scan is packed into the
+ *     first order, the 2nd scan into the second order, and only the
+ *     3rd scan is flagged DUPLICATE.
+ *  3. Order OX2 is included everywhere (matching + Progress).
+ *
+ *  HOW TO USE
+ *  - First paste the OX2 rows into the Master tab (see instructions).
+ *  - Paste this whole file into Extensions > Apps Script, Save,
+ *    reload the sheet.
+ *  - Run:  Packing  >  Fix matching (run once)
+ *******************************************************************/
+
+var SCAN_SHEET = "Scan";
+var MASTER_SHEET = "Master";
+var PROGRESS_SHEET = "Progress";
+
+var SCAN_START = 4; // first scan row
+var SCAN_LAST = 30000; // enough rows for all copies across 5 orders
+var MASTER_START = 2; // first data row on Master (row 1 = header)
+
+var ORDERS = ["317", "322", "323", "327", "OX2"];
+
+// Master helper columns built by buildKeyIndex_()
+var COL_KEY = 5; // E : ISBN as text
+var COL_SEQ = 6; // F : "ISBN|n"  (n = which copy this row is)
+var COL_TOT = 7; // G : total copies of this ISBN across all orders
+
+// open-ended Master ranges used inside the Scan formulas
+var M_A = "Master!$A$2:$A";
+var M_C = "Master!$C$2:$C";
+var M_E = "Master!$E$2:$E";
+var M_F = "Master!$F$2:$F";
+var M_G = "Master!$G$2:$G";
+
+var NF = "\u274C NOT FOUND \u2014 search by name";
+var DUP = "\u26D4 DUPLICATE \u2014 set aside, do not add";
+
+/*----------------------------------------------------------------*/
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("\uD83D\uDCE6 Packing")
+    .addItem("\uD83D\uDD0D Search by name", "openSearch")
+    .addSeparator()
+    .addItem("\uD83D\uDEE0 Fix matching (run once)", "repairMatching")
+    .addToUi();
+}
+
+/*================================================================*
+ *  ONE-TIME REPAIR / SETUP
+ *================================================================*/
+function repairMatching() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var m = ss.getSheetByName(MASTER_SHEET);
+  var s = ss.getSheetByName(SCAN_SHEET);
+  if (!m || !s) {
+    SpreadsheetApp.getUi().alert("Could not find the Scan or Master sheet.");
+    return;
+  }
+
+  // 1. make sure the Scan sheet has enough rows
+  ensureRows_(s, SCAN_LAST);
+
+  // 2. build the text index on Master (covers every order incl. OX2)
+  buildKeyIndex_(m);
+
+  // 3. lock the scan column to plain text so barcodes never turn numeric
+  s.getRange(SCAN_START, 1, SCAN_LAST - SCAN_START + 1, 1).setNumberFormat("@");
+
+  // 4. write the formulas into the first scan row, then copy down (fast)
+  var f = rowFormulas_(SCAN_START);
+  s.getRange(SCAN_START, 2).setFormula(f.B);
+  s.getRange(SCAN_START, 3).setFormula(f.C);
+  s.getRange(SCAN_START, 4).setFormula(f.D);
+  s.getRange(SCAN_START, 2, 1, 3).copyTo(
+    s.getRange(SCAN_START + 1, 2, SCAN_LAST - SCAN_START, 3),
+  );
+
+  // 5. refresh the Progress dashboard (adds OX2)
+  rebuildProgress_(ss);
+
+  SpreadsheetApp.flush();
+  SpreadsheetApp.getUi().alert(
+    "\u2705 Done.\n\n" +
+      "All five orders (317, 322, 323, 327, OX2) are indexed and every " +
+      "scan row is ready.\n\nYou can scan continuously now - no popups, " +
+      "no cursor jumping. Books shared between two orders will show " +
+      '"copy 1 of 2" then "copy 2 of 2".',
+  );
+}
+
+function ensureRows_(s, needLast) {
+  var have = s.getMaxRows();
+  if (have < needLast) s.insertRowsAfter(have, needLast - have);
+}
+
+/* Build Master!E (text key), Master!F ("key|n"), Master!G (total copies). */
+function buildKeyIndex_(m) {
+  var last = m.getLastRow();
+  if (last < MASTER_START) return;
+  var n = last - MASTER_START + 1;
+  var isbns = m.getRange(MASTER_START, 2, n, 1).getValues(); // column B
+
+  var total = {};
+  for (var i = 0; i < n; i++) {
+    var key = ("" + isbns[i][0]).trim();
+    total[key] = (total[key] || 0) + 1;
+  }
+  var seen = {};
+  var E = [],
+    F = [],
+    G = [];
+  for (var j = 0; j < n; j++) {
+    var k = ("" + isbns[j][0]).trim();
+    seen[k] = (seen[k] || 0) + 1;
+    E.push([k]);
+    F.push([k + "|" + seen[k]]);
+    G.push([total[k]]);
+  }
+  m.getRange(1, COL_KEY).setValue("key");
+  m.getRange(1, COL_SEQ).setValue("seqkey");
+  m.getRange(1, COL_TOT).setValue("copies");
+  // E and F must stay text; G stays numeric
+  m.getRange(MASTER_START, COL_KEY, n, 1).setNumberFormat("@").setValues(E);
+  m.getRange(MASTER_START, COL_SEQ, n, 1).setNumberFormat("@").setValues(F);
+  m.getRange(MASTER_START, COL_TOT, n, 1).setValues(G);
+}
+
+/* The three formulas for one scan row (relative refs adjust on copy-down). */
+function rowFormulas_(row) {
+  var A = "$A" + row;
+  var key = A + '&""';
+  var k = "COUNTIF($A$4:$A" + row + "," + key + ")";
+  var pos = "MATCH(" + key + "," + M_E + ",0)";
+  var tot = "IFERROR(INDEX(" + M_G + "," + pos + "),0)";
+  var posK = "MATCH(" + key + '&"|"&' + k + "," + M_F + ",0)";
+
+  var B =
+    "=IF(" +
+    A +
+    '="","",IF(ISNA(' +
+    pos +
+    '),"NOT FOUND",' +
+    "IF(" +
+    k +
+    ">" +
+    tot +
+    ',"\u2014",INDEX(' +
+    M_A +
+    "," +
+    posK +
+    "))))";
+
+  var C = "=IF(" + A + '="","",IFERROR(INDEX(' + M_C + "," + pos + '),""))';
+
+  var D =
+    "=IF(" +
+    A +
+    '="","",IF(ISNA(' +
+    pos +
+    '),"' +
+    NF +
+    '",' +
+    "IF(" +
+    k +
+    ">" +
+    tot +
+    ',"' +
+    DUP +
+    '",' +
+    "IF(" +
+    tot +
+    ">1," +
+    '"\u2705 PACK \u2014 Order "&B' +
+    row +
+    '&" (copy "&' +
+    k +
+    '&" of "&INDEX(' +
+    M_G +
+    "," +
+    pos +
+    ')&")",' +
+    '"\u2705 PACK \u2014 Order "&B' +
+    row +
+    "))))";
+
+  return { B: B, C: C, D: D };
+}
+
+/*================================================================*
+ *  PROGRESS DASHBOARD
+ *================================================================*/
+function rebuildProgress_(ss) {
+  var p = ss.getSheetByName(PROGRESS_SHEET);
+  if (!p) return;
+  var SB = "Scan!$B$" + SCAN_START + ":$B$" + SCAN_LAST;
+  var SD = "Scan!$D$" + SCAN_START + ":$D$" + SCAN_LAST;
+
+  p.getRange("A4:D4").setValues([
+    ["Order (Box)", "Total ordered", "Packed", "Remaining"],
+  ]);
+  for (var i = 0; i < ORDERS.length; i++) {
+    var r = 5 + i,
+      o = ORDERS[i];
+    p.getRange(r, 1).setValue(o);
+    p.getRange(r, 2).setFormula("=COUNTIF(" + M_A + ',"' + o + '")');
+    p.getRange(r, 3).setFormula(
+      "=COUNTIFS(" + SB + ',"' + o + '",' + SD + ',"*PACK*")',
+    );
+    p.getRange(r, 4).setFormula("=B" + r + "-C" + r);
+  }
+  var t = 5 + ORDERS.length; // TOTAL row
+  p.getRange(t, 1).setValue("TOTAL");
+  p.getRange(t, 2).setFormula("=SUM(B5:B" + (t - 1) + ")");
+  p.getRange(t, 3).setFormula("=SUM(C5:C" + (t - 1) + ")");
+  p.getRange(t, 4).setFormula("=SUM(D5:D" + (t - 1) + ")");
+
+  var e = t + 2;
+  p.getRange(e, 1).setValue("Total scanned");
+  p.getRange(e, 2).setFormula(
+    "=COUNTA(Scan!$A$" + SCAN_START + ":$A$" + SCAN_LAST + ")",
+  );
+  p.getRange(e + 1, 1).setValue("Duplicates caught");
+  p.getRange(e + 1, 2).setFormula("=COUNTIF(" + SD + ',"*DUPLICATE*")');
+  p.getRange(e + 2, 1).setValue("Not found");
+  p.getRange(e + 2, 2).setFormula("=COUNTIF(" + SD + ',"*NOT FOUND*")');
+}
+
+/*================================================================*
+ *  SEARCH-BY-NAME SIDEBAR
+ *================================================================*/
+function openSearch() {
+  var html = HtmlService.createHtmlOutput(searchHtml_()).setTitle(
+    "\uD83D\uDD0D Find a book by name",
+  );
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+/* Called from the sidebar: returns matching master rows. */
+function searchBooks(term) {
+  term = ("" + term).toLowerCase().trim();
+  if (term.length < 2) return [];
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var m = ss.getSheetByName(MASTER_SHEET);
+  var last = m.getLastRow();
+  var data = m
+    .getRange(MASTER_START, 1, last - MASTER_START + 1, 3)
+    .getValues(); // A,B,C
+
+  // how many copies of each ISBN are ordered in total
+  var copies = {};
+  for (var a = 0; a < data.length; a++) {
+    var ik = ("" + data[a][1]).trim();
+    copies[ik] = (copies[ik] || 0) + 1;
+  }
+  var packedFull = getFullyPackedSet_(ss, copies);
+
+  var out = [];
+  for (var i = 0; i < data.length && out.length < 40; i++) {
+    var order = data[i][0];
+    var isbn = ("" + data[i][1]).trim();
+    var title = "" + data[i][2];
+    if (title.toLowerCase().indexOf(term) === -1) continue;
+    out.push({
+      order: "" + order,
+      isbn: isbn,
+      title: title,
+      packed: !!packedFull[isbn],
+    });
+  }
+  return out;
+}
+
+/* ISBNs that are packed to their full ordered quantity (all copies done). */
+function getFullyPackedSet_(ss, copies) {
+  var s = ss.getSheetByName(SCAN_SHEET);
+  var last = s.getLastRow();
+  var set = {};
+  if (last < SCAN_START) return set;
+  var vals = s.getRange(SCAN_START, 1, last - SCAN_START + 1, 4).getValues(); // A..D
+  var packCount = {};
+  for (var i = 0; i < vals.length; i++) {
+    var isbn = ("" + vals[i][0]).trim();
+    if (!isbn) continue;
+    var status = "" + vals[i][3];
+    if (status.indexOf("PACK") !== -1)
+      packCount[isbn] = (packCount[isbn] || 0) + 1;
+  }
+  for (var k in packCount) {
+    if (packCount[k] >= (copies[k] || 1)) set[k] = true;
+  }
+  return set;
+}
+
+/* Called from the sidebar Mark-packed button. */
+function markPacked(isbn) {
+  isbn = ("" + isbn).trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var s = ss.getSheetByName(SCAN_SHEET);
+  var row = nextEmptyScanRow_(s);
+  var cell = s.getRange(row, 1);
+  cell.setNumberFormat("@");
+  cell.setValue(isbn);
+  SpreadsheetApp.flush();
+  var status = "" + s.getRange(row, 4).getValue();
+  var order = "" + s.getRange(row, 2).getValue();
+  return { status: status, order: order };
+}
+
+function nextEmptyScanRow_(s) {
+  var last = s.getLastRow();
+  if (last < SCAN_START) return SCAN_START;
+  var vals = s.getRange(SCAN_START, 1, last - SCAN_START + 1, 1).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (("" + vals[i][0]).trim() === "") return SCAN_START + i;
+  }
+  return last + 1;
+}
+
+/*----------------------------------------------------------------*/
+function searchHtml_() {
+  return (
+    "" +
+    "<style>" +
+    "  body{font-family:Arial,Helvetica,sans-serif;margin:8px;font-size:13px;}" +
+    "  #q{width:100%;padding:8px;box-sizing:border-box;font-size:14px;margin-bottom:8px;}" +
+    "  .card{border:1px solid #ddd;border-radius:6px;padding:8px;margin-bottom:8px;}" +
+    "  .t{font-weight:bold;margin-bottom:2px;}" +
+    "  .meta{color:#666;font-size:12px;margin-bottom:6px;}" +
+    "  button{padding:6px 10px;border:0;border-radius:5px;cursor:pointer;font-size:13px;}" +
+    "  .go{background:#137333;color:#fff;}" +
+    "  .done{background:#eee;color:#888;cursor:default;}" +
+    "  .hint{color:#999;font-size:12px;}" +
+    "  .res{background:#e6f4ea;border:1px solid #137333;border-radius:5px;padding:6px;margin-top:6px;font-size:12px;}" +
+    "  .resdup{background:#fce8e6;border-color:#c5221f;}" +
+    "</style>" +
+    '<input id="q" placeholder="Type part of the title..." oninput="go()" autofocus>' +
+    '<div id="list" class="hint">Start typing a title above.</div>' +
+    "<script>" +
+    "  var timer=null;" +
+    "  function go(){clearTimeout(timer);timer=setTimeout(run,220);}" +
+    "  function run(){" +
+    '    var t=document.getElementById("q").value;' +
+    '    if(t.trim().length<2){document.getElementById("list").innerHTML="<div class=hint>Keep typing...</div>";return;}' +
+    '    document.getElementById("list").innerHTML="<div class=hint>Searching...</div>";' +
+    "    google.script.run.withSuccessHandler(show).searchBooks(t);" +
+    "  }" +
+    "  function show(rows){" +
+    '    if(!rows||!rows.length){document.getElementById("list").innerHTML="<div class=hint>No matches.</div>";return;}' +
+    '    var h="";' +
+    "    for(var i=0;i<rows.length;i++){var r=rows[i];" +
+    '      h+="<div class=card><div class=t>"+esc(r.title)+"</div>"+' +
+    '         "<div class=meta>Order "+esc(r.order)+" \u00b7 "+esc(r.isbn)+"</div>";' +
+    '      if(r.packed){h+="<button class=done disabled>Already packed \u2713</button>";}' +
+    '      else{h+="<button class=go onclick=\\"mark(this,\'"+r.isbn+"\')\\">Mark packed</button>";}' +
+    '      h+="<div class=res id=res_"+r.isbn+" style=display:none></div></div>";' +
+    "    }" +
+    '    document.getElementById("list").innerHTML=h;' +
+    "  }" +
+    "  function mark(btn,isbn){" +
+    '    btn.disabled=true;btn.textContent="Marking...";' +
+    "    google.script.run.withSuccessHandler(function(res){" +
+    '      var box=document.getElementById("res_"+isbn);' +
+    '      box.style.display="block";box.textContent=res.status;' +
+    '      if((res.status||"").indexOf("DUPLICATE")!==-1){box.className="res resdup";btn.textContent="Duplicate";}' +
+    '      else{btn.className="done";btn.textContent="Packed \u2713";}' +
+    "    }).markPacked(isbn);" +
+    "  }" +
+    '  function esc(s){return (""+s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}' +
+    "</script>"
+  );
+}
