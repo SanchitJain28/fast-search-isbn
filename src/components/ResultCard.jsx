@@ -33,7 +33,8 @@ export default function ResultCard({
   packedCount = 0,
   totalCopies = 1,
   onCopy,
-  onMarkPacked
+  onMarkPacked,
+  isLocked = false
 }) {
   const [copied, setCopied] = useState(false);
   const [lastAction, setLastAction] = useState(null);
@@ -47,6 +48,7 @@ export default function ResultCard({
 
   const handleCopy = (e) => {
     e.stopPropagation();
+    if (isLocked) return;
     navigator.clipboard.writeText(isbn);
     soundFx.copySuccess();
     setCopied(true);
@@ -56,7 +58,7 @@ export default function ResultCard({
 
   const handleMarkPacked = (e) => {
     e.stopPropagation();
-    if (isFullyPacked) return;
+    if (isFullyPacked || isLocked) return;
     if (onMarkPacked) {
       const res = onMarkPacked(item);
       setLastAction(res);
@@ -66,9 +68,10 @@ export default function ResultCard({
 
   return (
     <div
-      className={`result-card ${isSelected ? 'selected' : ''} ${isFullyPacked ? 'card-fully-packed' : ''}`}
-      onClick={handleCopy}
-      title="Click card to copy ISBN"
+      className={`result-card ${isSelected ? 'selected' : ''} ${isFullyPacked ? 'card-fully-packed' : ''} ${isLocked ? 'card-locked' : ''}`}
+      onClick={!isLocked ? handleCopy : undefined}
+      title={isLocked ? 'Action locked until synced' : 'Click card to copy ISBN'}
+      style={{ opacity: isLocked ? 0.6 : 1 }}
     >
       <div className="card-left">
         <div className="card-title-row">
@@ -118,7 +121,7 @@ export default function ResultCard({
       </div>
 
       <div className="card-actions">
-        {/* Mark Packed Button (with exact excel-extension behavior: disabled when already packed) */}
+        {/* Mark Packed Button */}
         {isFullyPacked ? (
           <button className="mark-packed-btn done" disabled title="This book is already fully packed">
             <CheckCircle2 size={15} /> Already packed ✓
@@ -127,7 +130,9 @@ export default function ResultCard({
           <button
             className="mark-packed-btn"
             onClick={handleMarkPacked}
-            title="Mark this book as packed"
+            disabled={isLocked}
+            title={isLocked ? 'Locked until synced' : 'Mark this book as packed'}
+            style={{ opacity: isLocked ? 0.5 : 1, cursor: isLocked ? 'not-allowed' : 'pointer' }}
           >
             <PackageCheck size={15} />
             {totalCopies > 1 && packedCount > 0
@@ -140,7 +145,9 @@ export default function ResultCard({
         <button
           className={`copy-isbn-btn ${copied ? 'copied' : ''}`}
           onClick={handleCopy}
-          title="Copy ISBN-13 to clipboard"
+          disabled={isLocked}
+          title={isLocked ? 'Locked until synced' : 'Copy ISBN-13 to clipboard'}
+          style={{ opacity: isLocked ? 0.5 : 1, cursor: isLocked ? 'not-allowed' : 'pointer' }}
         >
           {copied ? (
             <>

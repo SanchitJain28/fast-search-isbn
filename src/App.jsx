@@ -132,6 +132,9 @@ export default function App() {
     if (typeof remoteCount === "number") {
       const timeSinceLocalScan =
         Date.now() - (packingManager.lastLocalScanTime || 0);
+
+      // If local is ahead because user just packed a book locally in the last 15 seconds,
+      // the outbound write to Google Sheet is actively in-flight. Suppress false alarm!
       if (localCount > remoteCount && timeSinceLocalScan < 15000) {
         setSyncAlert(null);
         return;
@@ -171,14 +174,14 @@ export default function App() {
 
   // Execute Search
   const { results, latencyMs, totalMatches } = useMemo(() => {
-    if (!query.trim()) {
+    if (!query.trim() || syncAlert) {
       return { results: [], latencyMs: 0, totalMatches: 0 };
     }
     return searchEngine.search(query, {
       limit: 60,
       order: selectedOrder,
     });
-  }, [query, selectedOrder]);
+  }, [query, selectedOrder, syncAlert]);
 
   // Reset selected index when query changes
   useEffect(() => {
@@ -187,6 +190,7 @@ export default function App() {
 
   // Handle Mark Packed
   const handleMarkPacked = (item) => {
+    if (syncAlert) return null;
     const isbn = String(item.ISBN13 || "").trim();
     const candidates = searchEngine.getCopiesForIsbn(isbn);
     const logEntry = packingManager.markPacked(isbn, candidates);
@@ -197,7 +201,7 @@ export default function App() {
 
   // Keyboard navigation & Shortcuts
   const handleKeyDown = (e) => {
-    if (results.length === 0) return;
+    if (results.length === 0 || syncAlert) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -269,6 +273,9 @@ export default function App() {
       );
       setPackRevision((r) => r + 1);
       setSyncAlert(null);
+      setTimeout(() => {
+        if (inputRef.current) inputRef.current.focus();
+      }, 100);
       return count;
     } finally {
       setIsSyncingNow(false);
@@ -282,6 +289,9 @@ export default function App() {
     );
     setPackRevision((r) => r + 1);
     setSyncAlert(null);
+    setTimeout(() => {
+      if (inputRef.current) inputRef.current.focus();
+    }, 100);
     return count;
   };
 
@@ -294,6 +304,7 @@ export default function App() {
         searchEngine.getCopiesForIsbn(isbn),
       );
       setPackRevision((r) => r + 1);
+      setSyncAlert(null);
       return count;
     } catch (e) {
       return 0;
@@ -364,7 +375,7 @@ export default function App() {
               disabled={isSyncingNow}
             >
               <RefreshCw size={14} className={isSyncingNow ? "spinner" : ""} />
-              {isSyncingNow ? "Syncing..." : "Sync Now ⚡"}
+              {isSyncingNow ? "Syncing..." : "Sync & Unlock ⚡"}
             </button>
             <button
               className="icon-btn"
@@ -472,9 +483,13 @@ export default function App() {
               setSelectedOrder={setSelectedOrder}
               orders={stats.orders}
               onKeyDown={handleKeyDown}
+              isLocked={!!syncAlert}
+              syncAlert={syncAlert}
+              onSyncNow={handleFetchFromSheet}
+              isSyncingNow={isSyncingNow}
             />
 
-            {query.trim() ? (
+            {query.trim() && !syncAlert ? (
               <div className="results-container">
                 <div className="results-header">
                   <div>
@@ -512,6 +527,7 @@ export default function App() {
                           totalCopies={allCopies.length || 1}
                           onCopy={handleCopySuccess}
                           onMarkPacked={handleMarkPacked}
+                          isLocked={!!syncAlert}
                         />
                       );
                     })}
@@ -536,27 +552,30 @@ export default function App() {
                   style={{ color: "var(--accent-blue)" }}
                 />
                 <div className="empty-title">
-                  Start typing to search titles instantly
+                  {syncAlert ? "🔒 Search is Locked Until Synced" : "Start typing to search titles instantly"}
                 </div>
                 <div className="empty-subtitle">
-                  Searches run in <strong>under 0.2 milliseconds</strong> with
-                  FlexSearch in-memory index.
+                  {syncAlert
+                    ? "Click 'Sync & Unlock ⚡' above to fetch the latest Google Sheet changes."
+                    : "Searches run in under 0.2 milliseconds with FlexSearch in-memory index."}
                 </div>
 
-                <div className="sample-queries">
-                  {SAMPLE_QUERIES.map((sq) => (
-                    <button
-                      key={sq}
-                      className="sample-chip"
-                      onClick={() => {
-                        setQuery(sq);
-                        if (inputRef.current) inputRef.current.focus();
-                      }}
-                    >
-                      "{sq}"
-                    </button>
-                  ))}
-                </div>
+                {!syncAlert && (
+                  <div className="sample-queries">
+                    {SAMPLE_QUERIES.map((sq) => (
+                      <button
+                        key={sq}
+                        className="sample-chip"
+                        onClick={() => {
+                          setQuery(sq);
+                          if (inputRef.current) inputRef.current.focus();
+                        }}
+                      >
+                        "{sq}"
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
