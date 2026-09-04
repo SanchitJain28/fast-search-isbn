@@ -185,7 +185,10 @@ function apiServerPlugin() {
           (async () => {
             try {
               const fullUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}count=1`;
-              const response = await fetch(fullUrl, { redirect: 'follow' });
+              const response = await fetch(fullUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+                redirect: 'follow'
+              });
               const text = await response.text();
               try {
                 const data = JSON.parse(text);
@@ -213,7 +216,10 @@ function apiServerPlugin() {
           }
           (async () => {
             try {
-              const response = await fetch(targetUrl, { redirect: 'follow' });
+              const response = await fetch(targetUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+                redirect: 'follow'
+              });
               const text = await response.text();
               try {
                 const data = JSON.parse(text);

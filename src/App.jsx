@@ -31,6 +31,7 @@ import {
   RefreshCw,
   X,
   ClipboardCheck,
+  PackageCheck,
 } from "lucide-react";
 import "./App.css";
 
@@ -64,6 +65,15 @@ export default function App() {
   // Packing state revision counter to trigger instant re-renders
   const [packRevision, setPackRevision] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState(packingManager.connectedUsers || 1);
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = useCallback((toast) => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev.slice(-3), { ...toast, id }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3500);
+  }, []);
 
   const [recentCopies, setRecentCopies] = useState(() => {
     try {
@@ -93,12 +103,21 @@ export default function App() {
     const unsubscribe = packingManager.subscribe((type, data) => {
       if (type === "USER_COUNT") {
         setOnlineUsers(data || 1);
-      } else if (type === "BOOK_PACKED" || type === "SCANS_CLEARED") {
+      } else if (type === "BOOK_PACKED" && data) {
+        setPackRevision((r) => r + 1);
+        addToast({
+          title: data.title || `ISBN: ${data.isbn}`,
+          order: data.order ? `Order ${data.order}` : '',
+          status: data.statusType === 'PACK' ? 'Packed by other packer' : data.statusType,
+          isRemote: true,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        });
+      } else if (type === "SCANS_CLEARED") {
         setPackRevision((r) => r + 1);
       }
     });
     return unsubscribe;
-  }, []);
+  }, [addToast]);
 
   // Load Data and Build FlexSearch Index + Preload Initial Scans & Sync Central State
   useEffect(() => {
@@ -231,6 +250,17 @@ export default function App() {
     const logEntry = packingManager.markPacked(isbn, candidates);
     setPackRevision((r) => r + 1);
     handleCopySuccess(item);
+
+    if (logEntry && logEntry.statusType === "PACK") {
+      addToast({
+        title: logEntry.title || `ISBN: ${logEntry.isbn}`,
+        order: logEntry.order ? `Order ${logEntry.order}` : "",
+        status: "Packed by you",
+        isRemote: false,
+        time: logEntry.timestamp,
+      });
+    }
+
     return logEntry;
   };
 
@@ -312,6 +342,10 @@ export default function App() {
         if (inputRef.current) inputRef.current.focus();
       }, 100);
       return count;
+    } catch (err) {
+      console.warn("Fetch from sheet error:", err.message);
+      alert(`Sync Error: ${err.message}. Please check network or try again.`);
+      return 0;
     } finally {
       setIsSyncingNow(false);
     }
@@ -690,6 +724,43 @@ export default function App() {
           onImportPastedIsbns={handleImportPasted}
           onReloadBackup={handleReloadBackup}
         />
+      </div>
+
+      {/* Floating Real-Time Packing Toast Notifications */}
+      <div className="toast-stack-container">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pack-toast ${toast.isRemote ? "remote-toast" : "local-toast"}`}
+          >
+            <div className="pack-toast-icon">
+              <PackageCheck size={18} />
+            </div>
+            <div className="pack-toast-content">
+              <div className="pack-toast-header">
+                {toast.order && (
+                  <span className="pack-toast-order">{toast.order}</span>
+                )}
+                <span className="pack-toast-badge">
+                  {toast.isRemote ? "⚡ Live Sync" : "✓ Packed"}
+                </span>
+                <span className="pack-toast-time">{toast.time}</span>
+              </div>
+              <div className="pack-toast-title" title={toast.title}>
+                {toast.title}
+              </div>
+            </div>
+            <button
+              className="pack-toast-close"
+              onClick={() =>
+                setToasts((prev) => prev.filter((t) => t.id !== toast.id))
+              }
+              title="Dismiss"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ))}
       </div>
     </>
   );
