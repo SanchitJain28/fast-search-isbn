@@ -63,7 +63,7 @@ export default function App() {
 
   // Packing state revision counter to trigger instant re-renders
   const [packRevision, setPackRevision] = useState(0);
-  const [onlineUsers, setOnlineUsers] = useState(1);
+  const [onlineUsers, setOnlineUsers] = useState(packingManager.connectedUsers || 1);
 
   const [recentCopies, setRecentCopies] = useState(() => {
     try {
@@ -87,8 +87,9 @@ export default function App() {
     localStorage.setItem("fast_search_theme", theme);
   }, [theme]);
 
-  // Subscribe to Central WebSocket Hub for Real-Time Multi-User Packing
+  // Subscribe to Central WebSocket/SSE Hub for Real-Time Multi-User Packing
   useEffect(() => {
+    setOnlineUsers(packingManager.connectedUsers || 1);
     const unsubscribe = packingManager.subscribe((type, data) => {
       if (type === "USER_COUNT") {
         setOnlineUsers(data || 1);

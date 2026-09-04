@@ -64,10 +64,14 @@ function apiServerPlugin() {
         if (req.method === 'GET' && parsedUrl.pathname === '/api/events') {
           res.writeHead(200, {
             'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
+            'Cache-Control': 'no-cache, no-transform',
             'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'X-Accel-Buffering': 'no'
           });
+          if (typeof res.flushHeaders === 'function') {
+            res.flushHeaders();
+          }
 
           sseClients.add(res);
           console.log(`[SSE Hub] Packer connected. Total active: ${sseClients.size}`);
@@ -250,6 +254,36 @@ function apiServerPlugin() {
           broadcast({ type: 'SCANS_CLEARED' });
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ success: true }));
+          return;
+        }
+
+        // 7. POST /api/bulk-save-scans - Save master list of scans to central scans.csv
+        if (req.method === 'POST' && parsedUrl.pathname === '/api/bulk-save-scans') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', () => {
+            try {
+              const data = JSON.parse(body || '{}');
+              if (Array.isArray(data.scans)) {
+                let csvContent = 'ISBN13,Order,Title,Status,Timestamp\n';
+                for (const s of data.scans) {
+                  const isbn = String(s.isbn || '').trim();
+                  const order = String(s.order || '').trim();
+                  const title = String(s.title || '').replace(/"/g, '""');
+                  const status = String(s.status || '').replace(/"/g, '""');
+                  const timestamp = s.timestamp || '';
+                  csvContent += `"${isbn}","${order}","${title}","${status}","${timestamp}"\n`;
+                }
+                fs.writeFileSync(scansFile, csvContent, 'utf8');
+                console.log(`[Vite API] Master sync: Saved ${data.scans.length} scans to central storage.`);
+              }
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: true }));
+            } catch (err) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          });
           return;
         }
 

@@ -220,6 +220,10 @@ export class PackingManager {
       const res = await fetch('/api/state');
       if (res.ok) {
         const data = await res.json();
+        if (typeof data.userCount === 'number') {
+          this.connectedUsers = Math.max(1, data.userCount);
+          this.notifyListeners('USER_COUNT', this.connectedUsers);
+        }
         if (Array.isArray(data.isbns) && data.isbns.length > 0) {
           if (this.scanLog.length < data.isbns.length) {
             this.importScans(data.isbns, lookupCandidatesFn);
@@ -316,6 +320,15 @@ export class PackingManager {
       this.markPacked(raw, candidates, true);
       importedCount++;
     }
+
+    // Save to central server storage so all connected devices immediately get this master state
+    try {
+      fetch('/api/bulk-save-scans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scans: this.scanLog })
+      });
+    } catch (e) {}
 
     return importedCount;
   }
