@@ -96,7 +96,11 @@ export class PackingManager {
     this.scanLog = [];
     this.webhookUrl = DEFAULT_WEBHOOK_URL;
     this.lastLocalScanTime = 0;
+    this.connectedUsers = 1;
+    this.listeners = new Set();
+    this.eventSource = null;
     this.load();
+    this.initRealtimeSync();
   }
 
   load() {
@@ -136,6 +140,98 @@ export class PackingManager {
     } catch (e) {
       console.warn('Failed to save packing storage:', e);
     }
+  }
+
+  // Subscribe to real-time events (incoming scans from other packers, user count changes)
+  subscribe(callback) {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
+
+  notifyListeners(type, data) {
+    for (const listener of this.listeners) {
+      try {
+        listener(type, data);
+      } catch (e) {
+        console.error('Listener error:', e);
+      }
+    }
+  }
+
+  // Real-time EventSource (SSE) connection to local central pool
+  initRealtimeSync() {
+    if (typeof window === 'undefined') return;
+
+    try {
+      if (this.eventSource) {
+        this.eventSource.close();
+      }
+
+      this.eventSource = new EventSource('/api/events');
+
+      this.eventSource.onopen = () => {
+        console.log('⚡ [Realtime Pool] Connected to Central Live Hub');
+      };
+
+      this.eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'USER_COUNT') {
+            this.connectedUsers = data.count || 1;
+            this.notifyListeners('USER_COUNT', this.connectedUsers);
+          } else if (data.type === 'BOOK_PACKED' && data.scan) {
+            const incoming = data.scan;
+            // Check if we already have this scan registered locally
+            const exists = this.scanLog.some(s => s.id === incoming.id);
+            if (!exists) {
+              this.scanLog.unshift(incoming);
+              if (incoming.statusType === 'PACK') {
+                const cur = this.packedCounts.get(incoming.isbn) || 0;
+                this.packedCounts.set(incoming.isbn, cur + 1);
+              }
+              this.lastLocalScanTime = Date.now();
+              this.save();
+              console.log(`📡 [Realtime Broadcast] Remote pack received: ${incoming.isbn} (${incoming.title})`);
+              this.notifyListeners('BOOK_PACKED', incoming);
+            }
+          } else if (data.type === 'SCANS_CLEARED') {
+            this.scanLog = [];
+            this.packedCounts.clear();
+            this.save();
+            this.notifyListeners('SCANS_CLEARED');
+          }
+        } catch (e) {
+          console.warn('Realtime message parse error:', e);
+        }
+      };
+
+      this.eventSource.onerror = (err) => {
+        // EventSource will automatically reconnect in background
+      };
+    } catch (e) {
+      console.warn('Realtime connection error:', e);
+    }
+  }
+
+  // Sync initial state from central server on page load
+  async syncInitialStateFromServer(lookupCandidatesFn) {
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.isbns) && data.isbns.length > 0) {
+          if (this.scanLog.length < data.isbns.length) {
+            this.importScans(data.isbns, lookupCandidatesFn);
+            console.log(`⚡ [Initial Sync] Synced ${data.isbns.length} master scans from central pool.`);
+            return data.isbns.length;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to sync initial state from central server:', e);
+    }
+    return 0;
   }
 
   setWebhookUrl(url) {
@@ -200,6 +296,7 @@ export class PackingManager {
     this.lastLocalScanTime = Date.now();
     this.save();
 
+    // Send to central server (which saves to CSV, queues to Sheets, and broadcasts live to all devices)
     if (!skipWebhook) {
       this.sendToLocalApi(logEntry);
     }
@@ -209,7 +306,7 @@ export class PackingManager {
 
   // Bulk import existing scans
   importScans(isbnList = [], lookupCandidatesFn) {
-    this.clearLogs();
+    this.clearLogs(true);
     let importedCount = 0;
 
     for (let i = 0; i < isbnList.length; i++) {
@@ -263,15 +360,19 @@ export class PackingManager {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: logEntry.id,
           isbn: logEntry.isbn,
           order: logEntry.order,
           title: logEntry.title,
           status: logEntry.status,
+          statusType: logEntry.statusType,
+          copyNum: logEntry.copyNum,
+          totalCopies: logEntry.totalCopies,
           timestamp: logEntry.timestamp,
           webhookUrl: this.webhookUrl || DEFAULT_WEBHOOK_URL
         })
       });
-      console.log('⚡ Scan saved locally & queued for Google Sheet:', logEntry.isbn);
+      console.log('⚡ Scan saved to central server, queued for Sheet & broadcasted:', logEntry.isbn);
     } catch (e) {
       console.warn('Local API error:', e);
     }
@@ -318,13 +419,15 @@ export class PackingManager {
     };
   }
 
-  clearLogs() {
+  clearLogs(skipApi = false) {
     this.scanLog = [];
     this.packedCounts.clear();
     this.save();
-    try {
-      fetch('/api/clear-scans', { method: 'POST' });
-    } catch (e) {}
+    if (!skipApi) {
+      try {
+        fetch('/api/clear-scans', { method: 'POST' });
+      } catch (e) {}
+    }
   }
 
   exportExcel(orderTotals = {}) {

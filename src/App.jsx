@@ -14,6 +14,7 @@ import RecentCopies from "./components/RecentCopies";
 import ProgressDashboard from "./components/ProgressDashboard";
 import ScanLogView from "./components/ScanLogView";
 import SyncModal from "./components/SyncModal";
+import ReviewTab from "./components/ReviewTab";
 import {
   Zap,
   BookOpen,
@@ -29,6 +30,7 @@ import {
   BellRing,
   RefreshCw,
   X,
+  ClipboardCheck,
 } from "lucide-react";
 import "./App.css";
 
@@ -61,6 +63,7 @@ export default function App() {
 
   // Packing state revision counter to trigger instant re-renders
   const [packRevision, setPackRevision] = useState(0);
+  const [onlineUsers, setOnlineUsers] = useState(1);
 
   const [recentCopies, setRecentCopies] = useState(() => {
     try {
@@ -84,7 +87,19 @@ export default function App() {
     localStorage.setItem("fast_search_theme", theme);
   }, [theme]);
 
-  // Load Data and Build FlexSearch Index + Preload Initial Scans
+  // Subscribe to Central WebSocket Hub for Real-Time Multi-User Packing
+  useEffect(() => {
+    const unsubscribe = packingManager.subscribe((type, data) => {
+      if (type === "USER_COUNT") {
+        setOnlineUsers(data || 1);
+      } else if (type === "BOOK_PACKED" || type === "SCANS_CLEARED") {
+        setPackRevision((r) => r + 1);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Load Data and Build FlexSearch Index + Preload Initial Scans & Sync Central State
   useEffect(() => {
     async function loadData() {
       try {
@@ -93,8 +108,13 @@ export default function App() {
         const info = searchEngine.init(data);
         setStats(info);
 
-        // If no scans in localStorage, auto-populate from initial_scans.json
-        if (packingManager.scanLog.length === 0) {
+        // 1. First attempt to sync state from central server pool (if running in multi-user network)
+        const serverSynced = await packingManager.syncInitialStateFromServer((isbn) =>
+          searchEngine.getCopiesForIsbn(isbn),
+        );
+
+        // 2. If no scans in server or localStorage, auto-populate from initial_scans.json backup
+        if (!serverSynced && packingManager.scanLog.length === 0) {
           try {
             const scanRes = await fetch("/initial_scans.json");
             if (scanRes.ok) {
@@ -112,6 +132,8 @@ export default function App() {
           } catch (scanErr) {
             console.warn("No initial scans file found:", scanErr);
           }
+        } else {
+          setPackRevision((r) => r + 1);
         }
 
         setLoading(false);
@@ -172,7 +194,7 @@ export default function App() {
     };
   }, [webhookUrl, packRevision, checkForUpdates]);
 
-  // Execute Search
+  // Execute Search (locked when sync is needed)
   const { results, latencyMs, totalMatches } = useMemo(() => {
     if (!query.trim() || syncAlert) {
       return { results: [], latencyMs: 0, totalMatches: 0 };
@@ -188,10 +210,22 @@ export default function App() {
     setSelectedIndex(0);
   }, [query, selectedOrder]);
 
-  // Handle Mark Packed
+  // Packing cooldown ref to prevent accidental rapid double-clicks/scanner bounces
+  const lastPackRef = useRef({ isbn: '', time: 0 });
+
+  // Handle Mark Packed with 600ms debounce protection
   const handleMarkPacked = (item) => {
     if (syncAlert) return null;
     const isbn = String(item.ISBN13 || "").trim();
+    const now = Date.now();
+
+    // Prevent duplicate triggers for the same ISBN within 600ms (mouse microswitch bounce or barcode scanner CR/LF)
+    if (lastPackRef.current.isbn === isbn && now - lastPackRef.current.time < 600) {
+      console.warn(`[Debounce] Ignored rapid duplicate click for ISBN: ${isbn}`);
+      return null;
+    }
+    lastPackRef.current = { isbn, time: now };
+
     const candidates = searchEngine.getCopiesForIsbn(isbn);
     const logEntry = packingManager.markPacked(isbn, candidates);
     setPackRevision((r) => r + 1);
@@ -414,6 +448,11 @@ export default function App() {
           </div>
 
           <div className="header-controls">
+            <div className="live-users-pill" title="Live WebSocket Multi-User Synchronization Active across Wi-Fi network">
+              <span className="live-pulse-dot" />
+              <span>{onlineUsers} {onlineUsers === 1 ? "Packer" : "Packers"} Live</span>
+            </div>
+
             <button
               className="icon-btn"
               onClick={() => setIsSyncModalOpen(true)}
@@ -455,6 +494,15 @@ export default function App() {
             }}
           >
             <SearchIcon size={16} /> Title Search
+          </button>
+          <button
+            className={`tab-btn ${activeTab === "review" ? "active" : ""}`}
+            onClick={() => setActiveTab("review")}
+          >
+            <ClipboardCheck size={16} /> For Review
+            <span className="tab-counter" style={{ background: "rgba(59, 130, 246, 0.2)", color: "var(--accent-blue)" }}>
+              29
+            </span>
           </button>
           <button
             className={`tab-btn ${activeTab === "progress" ? "active" : ""}`}
@@ -588,6 +636,19 @@ export default function App() {
               onReCopy={handleCopySuccess}
             />
           </>
+        )}
+
+        {/* Tab: For Review */}
+        {activeTab === "review" && (
+          <ReviewTab
+            searchEngine={searchEngine}
+            packingManager={packingManager}
+            onMarkPacked={handleMarkPacked}
+            onCopy={handleCopySuccess}
+            isLocked={!!syncAlert}
+            packRevision={packRevision}
+            orders={stats.orders}
+          />
         )}
 
         {/* Tab 2: Progress Dashboard */}

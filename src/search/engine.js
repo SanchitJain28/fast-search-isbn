@@ -1,4 +1,4 @@
-import FlexSearch from 'flexsearch';
+import FlexSearch from "flexsearch";
 
 export class BookSearchEngine {
   constructor() {
@@ -11,15 +11,15 @@ export class BookSearchEngine {
   }
 
   init(data) {
-    console.time('SearchEngine.init');
+    console.time("SearchEngine.init");
     this.records = data.map((item, idx) => ({
       id: idx,
       ...item,
-      Title: String(item.Title || '').trim(),
-      ISBN13: String(item.ISBN13 || '').trim(),
-      Order: String(item.Order || '').trim()
+      Title: String(item.Title || "").trim(),
+      ISBN13: String(item.ISBN13 || "").trim(),
+      Order: String(item.Order || "").trim(),
     }));
-    
+
     // Fast O(1) ISBN Map and Orders collection
     this.isbnMap.clear();
     this.orders.clear();
@@ -29,7 +29,7 @@ export class BookSearchEngine {
       const item = this.records[i];
       const isbn = item.ISBN13;
       const order = item.Order;
-      
+
       if (order) {
         this.orders.add(order);
         this.orderTotals.set(order, (this.orderTotals.get(order) || 0) + 1);
@@ -46,23 +46,32 @@ export class BookSearchEngine {
     // FlexSearch Document index
     this.index = new FlexSearch.Document({
       document: {
-        id: 'id',
+        id: "id",
         index: [
           {
-            field: 'Title',
-            tokenize: 'forward',
+            field: "Title",
+            tokenize: "forward",
             resolution: 9,
             minlength: 1,
-            optimize: true
+            optimize: true,
           },
           {
-            field: 'ISBN13',
-            tokenize: 'strict',
-            resolution: 9
-          }
+            field: "ISBN13",
+            tokenize: "strict",
+            resolution: 9,
+          },
         ],
-        store: ['id', 'Order', 'ISBN13', 'Title', 'Qty', 'key', 'seqkey', 'copies']
-      }
+        store: [
+          "id",
+          "Order",
+          "ISBN13",
+          "Title",
+          "Qty",
+          "key",
+          "seqkey",
+          "copies",
+        ],
+      },
     });
 
     for (let i = 0; i < this.records.length; i++) {
@@ -70,11 +79,11 @@ export class BookSearchEngine {
     }
 
     this.isReady = true;
-    console.timeEnd('SearchEngine.init');
+    console.timeEnd("SearchEngine.init");
     return {
       totalRecords: this.records.length,
       orders: Array.from(this.orders).sort(),
-      orderTotals: Object.fromEntries(this.orderTotals)
+      orderTotals: Object.fromEntries(this.orderTotals),
     };
   }
 
@@ -87,27 +96,27 @@ export class BookSearchEngine {
     const rawQuery = String(query).trim();
     const cleanQuery = rawQuery.toLowerCase();
     const limit = options.limit || 60;
-    const filterOrder = options.order || 'ALL';
+    const filterOrder = options.order || "ALL";
 
     // 1. Check direct exact ISBN lookup first (0.005ms)
-    const cleanIsbn = rawQuery.replace(/[-\s]/g, '');
+    const cleanIsbn = rawQuery.replace(/[-\s]/g, "");
     if (/^\d{9,13}$/.test(cleanIsbn) && this.isbnMap.has(cleanIsbn)) {
       let matches = this.isbnMap.get(cleanIsbn);
-      if (filterOrder !== 'ALL') {
-        matches = matches.filter(r => String(r.Order) === filterOrder);
+      if (filterOrder !== "ALL") {
+        matches = matches.filter((r) => String(r.Order) === filterOrder);
       }
       const endTime = performance.now();
       return {
         results: matches.slice(0, limit),
         latencyMs: +(endTime - startTime).toFixed(3),
-        totalMatches: matches.length
+        totalMatches: matches.length,
       };
     }
 
     // 2. Multi-token FlexSearch
     const searchRes = this.index.search(cleanQuery, {
       limit: limit * 2,
-      enrich: true
+      enrich: true,
     });
 
     const seenIds = new Set();
@@ -120,7 +129,7 @@ export class BookSearchEngine {
           const doc = item.doc;
           if (doc && !seenIds.has(doc.id)) {
             seenIds.add(doc.id);
-            if (filterOrder === 'ALL' || String(doc.Order) === filterOrder) {
+            if (filterOrder === "ALL" || String(doc.Order) === filterOrder) {
               matchedDocs.push(doc);
             }
           }
@@ -133,9 +142,10 @@ export class BookSearchEngine {
       const tokens = cleanQuery.split(/\s+/).filter(Boolean);
       for (let i = 0; i < this.records.length; i++) {
         const doc = this.records[i];
-        if (filterOrder !== 'ALL' && String(doc.Order) !== filterOrder) continue;
+        if (filterOrder !== "ALL" && String(doc.Order) !== filterOrder)
+          continue;
 
-        const titleLower = String(doc.Title || '').toLowerCase();
+        const titleLower = String(doc.Title || "").toLowerCase();
         let allTokensMatch = true;
         for (let t = 0; t < tokens.length; t++) {
           if (!titleLower.includes(tokens[t])) {
@@ -153,8 +163,8 @@ export class BookSearchEngine {
 
     // Rank results: exact start of title / exact phrase higher
     matchedDocs.sort((a, b) => {
-      const aTitle = String(a.Title || '').toLowerCase();
-      const bTitle = String(b.Title || '').toLowerCase();
+      const aTitle = String(a.Title || "").toLowerCase();
+      const bTitle = String(b.Title || "").toLowerCase();
       const aStarts = aTitle.startsWith(cleanQuery) ? -1 : 0;
       const bStarts = bTitle.startsWith(cleanQuery) ? -1 : 0;
       if (aStarts !== bStarts) return aStarts - bStarts;
@@ -168,13 +178,13 @@ export class BookSearchEngine {
     return {
       results: finalResults,
       latencyMs: latencyMs,
-      totalMatches: matchedDocs.length
+      totalMatches: matchedDocs.length,
     };
   }
 
   // Get total copies ordered for a given ISBN
   getCopiesForIsbn(isbn) {
-    const clean = String(isbn || '').trim();
+    const clean = String(isbn || "").trim();
     return this.isbnMap.get(clean) || [];
   }
 }

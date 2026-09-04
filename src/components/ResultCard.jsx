@@ -38,6 +38,7 @@ export default function ResultCard({
 }) {
   const [copied, setCopied] = useState(false);
   const [lastAction, setLastAction] = useState(null);
+  const [isProcessingPack, setIsProcessingPack] = useState(false);
 
   const isbn = String(item.ISBN13 || '').trim();
   const order = String(item.Order || '').trim();
@@ -58,12 +59,16 @@ export default function ResultCard({
 
   const handleMarkPacked = (e) => {
     e.stopPropagation();
-    if (isFullyPacked || isLocked) return;
+    if (isFullyPacked || isLocked || isProcessingPack) return;
+    setIsProcessingPack(true);
     if (onMarkPacked) {
       const res = onMarkPacked(item);
       setLastAction(res);
       soundFx.copySuccess();
     }
+    setTimeout(() => {
+      setIsProcessingPack(false);
+    }, 500);
   };
 
   return (
@@ -130,9 +135,9 @@ export default function ResultCard({
           <button
             className="mark-packed-btn"
             onClick={handleMarkPacked}
-            disabled={isLocked}
+            disabled={isLocked || isProcessingPack}
             title={isLocked ? 'Locked until synced' : 'Mark this book as packed'}
-            style={{ opacity: isLocked ? 0.5 : 1, cursor: isLocked ? 'not-allowed' : 'pointer' }}
+            style={{ opacity: (isLocked || isProcessingPack) ? 0.5 : 1, cursor: (isLocked || isProcessingPack) ? 'not-allowed' : 'pointer' }}
           >
             <PackageCheck size={15} />
             {totalCopies > 1 && packedCount > 0

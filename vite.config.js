@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 
-// Vite plugin providing local real-time API endpoints for scanning & sheets sync
+// Vite plugin providing local real-time API endpoints & SSE hub for multi-user collaboration
 function apiServerPlugin() {
   const scansFile = path.resolve(__dirname, 'scans.csv');
 
@@ -15,6 +15,21 @@ function apiServerPlugin() {
   // FIFO Sync Queue to ensure Google Sheet receives scans one-by-one without write storms
   const queue = [];
   let isProcessing = false;
+  const recentScans = new Map(); // isbn -> timestamp (to prevent scanner jitter / double posts)
+
+  // Active SSE client connections
+  const sseClients = new Set();
+
+  function broadcast(data) {
+    const payload = `data: ${JSON.stringify(data)}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(payload);
+      } catch (e) {
+        sseClients.delete(client);
+      }
+    }
+  }
 
   async function processQueue() {
     if (isProcessing || queue.length === 0) return;
@@ -41,10 +56,32 @@ function apiServerPlugin() {
   return {
     name: 'fast-search-api',
     configureServer(server) {
+      // HTTP Middlewares
       server.middlewares.use((req, res, next) => {
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
 
-        // 1. POST /api/scan - Instant local write + Google Sheet queue
+        // 0. GET /api/events - Real-Time Server-Sent Events (SSE) Hub
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/events') {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+          });
+
+          sseClients.add(res);
+          console.log(`[SSE Hub] Packer connected. Total active: ${sseClients.size}`);
+          broadcast({ type: 'USER_COUNT', count: sseClients.size });
+
+          req.on('close', () => {
+            sseClients.delete(res);
+            console.log(`[SSE Hub] Packer disconnected. Total active: ${sseClients.size}`);
+            broadcast({ type: 'USER_COUNT', count: sseClients.size });
+          });
+          return;
+        }
+
+        // 1. POST /api/scan - Instant local write + Live WebSocket Broadcast + Google Sheet queue
         if (req.method === 'POST' && parsedUrl.pathname === '/api/scan') {
           let body = '';
           req.on('data', chunk => body += chunk);
@@ -55,14 +92,45 @@ function apiServerPlugin() {
               const order = String(data.order || '').trim();
               const title = String(data.title || '').replace(/"/g, '""');
               const status = String(data.status || '').replace(/"/g, '""');
+              const statusType = data.statusType || 'PACK';
               const timestamp = data.timestamp || new Date().toLocaleTimeString();
+
+              // Deduplicate identical ISBN requests arriving within 600ms
+              const now = Date.now();
+              const lastSeen = recentScans.get(isbn) || 0;
+              if (now - lastSeen < 600) {
+                console.warn(`[Vite API] Deduplicated rapid scan for ISBN: ${isbn}`);
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: true, deduplicated: true, isbn }));
+                return;
+              }
+              recentScans.set(isbn, now);
 
               // 1. Instant local file append (0.1ms backup)
               const csvRow = `"${isbn}","${order}","${title}","${status}","${timestamp}"\n`;
               fs.appendFileSync(scansFile, csvRow, 'utf8');
 
-              // 2. Queue for real-time Google Sheet update
-              if (data.webhookUrl) {
+              const logEntry = {
+                id: data.id || `${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                isbn,
+                order,
+                title: data.title || '',
+                status: data.status || '',
+                statusType,
+                copyNum: data.copyNum || 1,
+                totalCopies: data.totalCopies || 1,
+                timestamp
+              };
+
+              // 2. Broadcast immediately to all connected devices in < 10ms!
+              broadcast({
+                type: 'BOOK_PACKED',
+                scan: logEntry,
+                userCount: sseClients.size
+              });
+
+              // 3. Queue for real-time Google Sheet update (only for valid PACK scans)
+              if (data.webhookUrl && statusType === 'PACK') {
                 queue.push({ isbn, webhookUrl: data.webhookUrl });
                 processQueue();
               }
@@ -78,7 +146,31 @@ function apiServerPlugin() {
           return;
         }
 
-        // 2. GET /api/check-remote-count - Node backend fetch (CORS/Redirect-free)
+        // 2. GET /api/state - Central initial state for newly connecting devices
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/state') {
+          try {
+            const isbns = [];
+            if (fs.existsSync(scansFile)) {
+              const content = fs.readFileSync(scansFile, 'utf8');
+              const lines = content.split('\n').filter(Boolean).slice(1);
+              for (const line of lines) {
+                // Extract first quoted value (ISBN)
+                const match = line.match(/^"([^"]+)"/);
+                if (match && match[1]) {
+                  isbns.push(match[1]);
+                }
+              }
+            }
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ isbns, count: isbns.length, userCount: sseClients.size }));
+          } catch (err) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: err.message }));
+          }
+          return;
+        }
+
+        // 3. GET /api/check-remote-count - Node backend fetch (CORS/Redirect-free)
         if (req.method === 'GET' && parsedUrl.pathname === '/api/check-remote-count') {
           const targetUrl = parsedUrl.searchParams.get('url');
           if (!targetUrl) {
@@ -107,7 +199,7 @@ function apiServerPlugin() {
           return;
         }
 
-        // 3. GET /api/fetch-all-scans - Node backend full scans fetch (CORS/Redirect-free)
+        // 4. GET /api/fetch-all-scans - Node backend full scans fetch (CORS/Redirect-free)
         if (req.method === 'GET' && parsedUrl.pathname === '/api/fetch-all-scans') {
           const targetUrl = parsedUrl.searchParams.get('url');
           if (!targetUrl) {
@@ -135,7 +227,7 @@ function apiServerPlugin() {
           return;
         }
 
-        // 4. GET /api/scans - Get all locally saved scans
+        // 5. GET /api/scans - Get all locally saved scans
         if (req.method === 'GET' && parsedUrl.pathname === '/api/scans') {
           try {
             if (fs.existsSync(scansFile)) {
@@ -152,9 +244,10 @@ function apiServerPlugin() {
           return;
         }
 
-        // 5. POST /api/clear-scans - Reset scans file
+        // 6. POST /api/clear-scans - Reset scans file & Broadcast clear
         if (req.method === 'POST' && parsedUrl.pathname === '/api/clear-scans') {
           fs.writeFileSync(scansFile, 'ISBN13,Order,Title,Status,Timestamp\n', 'utf8');
+          broadcast({ type: 'SCANS_CLEARED' });
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ success: true }));
           return;
