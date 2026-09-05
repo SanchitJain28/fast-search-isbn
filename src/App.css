@@ -1699,6 +1699,11 @@ kbd {
   border-color: rgba(16, 185, 129, 0.4);
 }
 
+.pack-toast.warning-toast {
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.25);
+}
+
 .pack-toast-icon {
   width: 32px;
   height: 32px;
@@ -1714,6 +1719,15 @@ kbd {
 .pack-toast.remote-toast .pack-toast-icon {
   background: rgba(6, 182, 212, 0.15);
   color: var(--accent-cyan);
+}
+
+.pack-toast.warning-toast .pack-toast-icon {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+}
+
+.pack-toast.warning-toast .pack-toast-badge {
+  color: var(--accent-amber);
 }
 
 .pack-toast-content {
@@ -1792,6 +1806,158 @@ kbd {
   to {
     transform: translateY(0) scale(1);
     opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   Sync Lock Banner & Health Pill Styles
+   ========================================================================== */
+
+.sync-lock-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.92), rgba(185, 28, 28, 0.95));
+  backdrop-filter: blur(12px);
+  color: #ffffff;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.35);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  animation: banner-drop-in 0.3s ease-out;
+}
+
+@keyframes banner-drop-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.sync-lock-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  font-size: 13.5px;
+}
+
+.sync-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  white-space: nowrap;
+}
+
+.pulsing-lock {
+  animation: lock-pulse 1.5s infinite;
+}
+
+@keyframes lock-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.75;
+  }
+}
+
+.sync-lock-text {
+  line-height: 1.4;
+}
+
+.sync-lock-unlock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #b91c1c;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sync-lock-unlock-btn:hover:not(:disabled) {
+  background: #fef2f2;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.sync-lock-unlock-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.sync-lock-unlock-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Header Sync Health Pill */
+.sync-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-family: var(--font-display);
+}
+
+.sync-health-pill.in-sync {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.sync-health-pill.in-sync:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.sync-health-pill.out-of-sync {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-rose);
+  border-color: rgba(239, 68, 68, 0.35);
+  animation: pulse-border 2s infinite;
+}
+
+.sync-health-pill.out-of-sync:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
   }
 }
 

@@ -32,6 +32,9 @@ import {
   X,
   ClipboardCheck,
   PackageCheck,
+  AlertTriangle,
+  Lock,
+  CheckCircle2,
 } from "lucide-react";
 import "./App.css";
 
@@ -56,16 +59,13 @@ export default function App() {
   const [selectedOrder, setSelectedOrder] = useState("ALL");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState(packingManager.webhookUrl);
-
-  // Sync Needed Notification State
-  const [syncAlert, setSyncAlert] = useState(null); // { remoteCount, localCount, diff } | null
-  const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   // Packing state revision counter to trigger instant re-renders
   const [packRevision, setPackRevision] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState(packingManager.connectedUsers || 1);
   const [toasts, setToasts] = useState([]);
+  const [syncLock, setSyncLock] = useState(null); // { isLocked: true, remoteCount: X, localCount: Y, diff: X - Y }
+  const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   const addToast = useCallback((toast) => {
     const id = Date.now() + Math.random();
@@ -90,6 +90,47 @@ export default function App() {
 
   const inputRef = useRef(null);
   const listRef = useRef(null);
+
+  // Sync Verification Check (Verifies local count matches Sheet count)
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      // Don't flag sync lock if user scanned locally in the last 4 seconds
+      if (Date.now() - packingManager.lastLocalScanTime < 4000) return;
+
+      const res = await fetch("/api/sheets/count");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.count === "number") {
+        const remoteCount = data.count;
+        const localTotalCount = packingManager.scanLog.length;
+
+        if (remoteCount !== localTotalCount && Math.abs(remoteCount - localTotalCount) > 0) {
+          setSyncLock({
+            isLocked: true,
+            remoteCount,
+            localCount: localTotalCount,
+            diff: remoteCount - localTotalCount,
+          });
+        } else {
+          setSyncLock(null);
+        }
+      }
+    } catch (e) {
+      console.warn("Sync check error:", e);
+    }
+  }, []);
+
+  // Check sync health periodically and on window focus
+  useEffect(() => {
+    checkSyncStatus();
+    const interval = setInterval(checkSyncStatus, 15000);
+    const onFocus = () => checkSyncStatus();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [checkSyncStatus, packRevision]);
 
   // Initialize Theme
   useEffect(() => {
@@ -119,7 +160,7 @@ export default function App() {
     return unsubscribe;
   }, [addToast]);
 
-  // Load Data and Build FlexSearch Index + Preload Initial Scans & Sync Central State
+  // Load Data and Build FlexSearch Index + Auto-Sync from Google Sheets API
   useEffect(() => {
     async function loadData() {
       try {
@@ -128,32 +169,44 @@ export default function App() {
         const info = searchEngine.init(data);
         setStats(info);
 
-        // 1. First attempt to sync state from central server pool (if running in multi-user network)
-        const serverSynced = await packingManager.syncInitialStateFromServer((isbn) =>
-          searchEngine.getCopiesForIsbn(isbn),
-        );
-
-        // 2. If no scans in server or localStorage, auto-populate from initial_scans.json backup
-        if (!serverSynced && packingManager.scanLog.length === 0) {
-          try {
-            const scanRes = await fetch("/initial_scans.json");
-            if (scanRes.ok) {
-              const initIsbns = await scanRes.json();
-              if (Array.isArray(initIsbns) && initIsbns.length > 0) {
-                packingManager.importScans(initIsbns, (isbn) =>
-                  searchEngine.getCopiesForIsbn(isbn),
-                );
-                setPackRevision((r) => r + 1);
-                console.log(
-                  `Auto-loaded ${initIsbns.length} initial scans from backup.`,
-                );
-              }
-            }
-          } catch (scanErr) {
-            console.warn("No initial scans file found:", scanErr);
+        // 1. Direct fetch from Google Sheets API v4 on startup
+        let sheetSynced = false;
+        try {
+          const sheetCount = await packingManager.fetchFromGoogleSheet((isbn) =>
+            searchEngine.getCopiesForIsbn(isbn)
+          );
+          if (sheetCount > 0 || packingManager.scanLog.length > 0) {
+            sheetSynced = true;
+            setPackRevision((r) => r + 1);
+            console.log(
+              `⚡ Auto-loaded ${packingManager.scanLog.length} live scans from Google Sheets API on startup.`
+            );
           }
-        } else {
-          setPackRevision((r) => r + 1);
+        } catch (sheetErr) {
+          console.warn("Sheet startup sync skipped:", sheetErr);
+        }
+
+        // 2. Fallback to server pool or backup if sheet not accessible
+        if (!sheetSynced) {
+          const serverSynced = await packingManager.syncInitialStateFromServer((isbn) =>
+            searchEngine.getCopiesForIsbn(isbn),
+          );
+          if (!serverSynced && packingManager.scanLog.length === 0) {
+            try {
+              const scanRes = await fetch("/initial_scans.json");
+              if (scanRes.ok) {
+                const initIsbns = await scanRes.json();
+                if (Array.isArray(initIsbns) && initIsbns.length > 0) {
+                  packingManager.importScans(initIsbns, (isbn) =>
+                    searchEngine.getCopiesForIsbn(isbn),
+                  );
+                  setPackRevision((r) => r + 1);
+                }
+              }
+            } catch (scanErr) {}
+          } else {
+            setPackRevision((r) => r + 1);
+          }
         }
 
         setLoading(false);
@@ -165,65 +218,16 @@ export default function App() {
     loadData();
   }, []);
 
-  // Check for Remote Google Sheet Changes with 15s in-flight grace period
-  const checkForUpdates = useCallback(async () => {
-    if (!webhookUrl) return;
-    const remoteCount = await packingManager.checkRemoteCount();
-    const localCount = packingManager.scanLog.length;
-
-    if (typeof remoteCount === "number") {
-      const timeSinceLocalScan =
-        Date.now() - (packingManager.lastLocalScanTime || 0);
-
-      // If local is ahead because user just packed a book locally in the last 15 seconds,
-      // the outbound write to Google Sheet is actively in-flight. Suppress false alarm!
-      if (localCount > remoteCount && timeSinceLocalScan < 15000) {
-        setSyncAlert(null);
-        return;
-      }
-
-      if (remoteCount !== localCount) {
-        setSyncAlert({
-          remoteCount,
-          localCount,
-          diff: remoteCount - localCount,
-        });
-      } else {
-        setSyncAlert(null);
-      }
-    }
-  }, [webhookUrl]);
-
-  // Background Change Detection Poller (every 6s + immediately when switching back to tab)
-  useEffect(() => {
-    if (!webhookUrl) return;
-
-    // Check immediately
-    checkForUpdates();
-
-    // Check every 6 seconds
-    const interval = setInterval(checkForUpdates, 6000);
-
-    // Check immediately when user switches focus to this window
-    const handleFocus = () => checkForUpdates();
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [webhookUrl, packRevision, checkForUpdates]);
-
-  // Execute Search (locked when sync is needed)
+  // Execute Search (Sub-0.2ms FlexSearch in-memory search)
   const { results, latencyMs, totalMatches } = useMemo(() => {
-    if (!query.trim() || syncAlert) {
+    if (!query.trim()) {
       return { results: [], latencyMs: 0, totalMatches: 0 };
     }
     return searchEngine.search(query, {
       limit: 60,
       order: selectedOrder,
     });
-  }, [query, selectedOrder, syncAlert]);
+  }, [query, selectedOrder]);
 
   // Reset selected index when query changes
   useEffect(() => {
@@ -235,7 +239,6 @@ export default function App() {
 
   // Handle Mark Packed with 600ms debounce protection
   const handleMarkPacked = (item) => {
-    if (syncAlert) return null;
     const isbn = String(item.ISBN13 || "").trim();
     const now = Date.now();
 
@@ -247,6 +250,30 @@ export default function App() {
     lastPackRef.current = { isbn, time: now };
 
     const candidates = searchEngine.getCopiesForIsbn(isbn);
+    const totalCopies = candidates.length || 1;
+    const currentPacked = packingManager.getPackedCount(isbn);
+
+    // If already fully packed, warn user immediately and DO NOT record duplicate garbage
+    if (currentPacked >= totalCopies) {
+      soundFx.duplicateWarning();
+      addToast({
+        title: item.Title || `ISBN: ${isbn}`,
+        order: item.Order ? `Order ${item.Order}` : "",
+        status: `Already packed (${currentPacked}/${totalCopies})`,
+        isWarning: true,
+        isRemote: false,
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      });
+      return {
+        statusType: "DUPLICATE",
+        status: `⛔ DUPLICATE (${currentPacked}/${totalCopies} packed) — set aside`,
+      };
+    }
+
     const logEntry = packingManager.markPacked(isbn, candidates);
     setPackRevision((r) => r + 1);
     handleCopySuccess(item);
@@ -266,7 +293,7 @@ export default function App() {
 
   // Keyboard navigation & Shortcuts
   const handleKeyDown = (e) => {
-    if (results.length === 0 || syncAlert) return;
+    if (results.length === 0) return;
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -337,15 +364,24 @@ export default function App() {
         searchEngine.getCopiesForIsbn(isbn),
       );
       setPackRevision((r) => r + 1);
-      setSyncAlert(null);
+      setSyncLock(null);
+      addToast({
+        title: "⚡ Google Sheet Synced",
+        status: `Imported ${count} packed books. System unlocked!`,
+        isWarning: false,
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      });
       setTimeout(() => {
         if (inputRef.current) inputRef.current.focus();
       }, 100);
       return count;
     } catch (err) {
       console.warn("Fetch from sheet error:", err.message);
-      alert(`Sync Error: ${err.message}. Please check network or try again.`);
-      return 0;
+      throw err;
     } finally {
       setIsSyncingNow(false);
     }
@@ -357,7 +393,6 @@ export default function App() {
       searchEngine.getCopiesForIsbn(isbn),
     );
     setPackRevision((r) => r + 1);
-    setSyncAlert(null);
     setTimeout(() => {
       if (inputRef.current) inputRef.current.focus();
     }, 100);
@@ -373,7 +408,6 @@ export default function App() {
         searchEngine.getCopiesForIsbn(isbn),
       );
       setPackRevision((r) => r + 1);
-      setSyncAlert(null);
       return count;
     } catch (e) {
       return 0;
@@ -412,58 +446,6 @@ export default function App() {
     <>
       <div className="ambient-bg" />
 
-      {/* Live Change Alert Banner (Handles both additions AND row deletions in Sheet) */}
-      {syncAlert && (
-        <div className="sync-notification-banner">
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span className="pulsing-badge">
-              <BellRing size={16} />
-            </span>
-            <span>
-              <strong>Sync Needed!</strong> Google Sheet has been modified (
-              <strong
-                style={{
-                  color:
-                    syncAlert.diff > 0
-                      ? "var(--accent-emerald)"
-                      : "var(--accent-rose)",
-                }}
-              >
-                {syncAlert.diff > 0
-                  ? `+${syncAlert.diff} new scans`
-                  : `${Math.abs(syncAlert.diff)} scans removed/deleted`}
-              </strong>{" "}
-              — Sheet: {syncAlert.remoteCount}, App: {syncAlert.localCount}).
-            </span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button
-              className="sync-now-banner-btn"
-              onClick={handleFetchFromSheet}
-              disabled={isSyncingNow}
-            >
-              <RefreshCw size={14} className={isSyncingNow ? "spinner" : ""} />
-              {isSyncingNow ? "Syncing..." : "Sync & Unlock ⚡"}
-            </button>
-            <button
-              className="icon-btn"
-              onClick={() => setSyncAlert(null)}
-              style={{
-                width: "28px",
-                height: "28px",
-                background: "transparent",
-                border: "none",
-                color: "#fff",
-              }}
-              title="Dismiss"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="app-container">
         {/* Header */}
         <header className="app-header">
@@ -483,9 +465,45 @@ export default function App() {
           </div>
 
           <div className="header-controls">
-            <div className="live-users-pill" title="Live WebSocket Multi-User Synchronization Active across Wi-Fi network">
+            {/* Sync Health Pill */}
+            <button
+              className={`sync-health-pill ${syncLock?.isLocked ? "out-of-sync" : "in-sync"}`}
+              onClick={
+                syncLock?.isLocked
+                  ? handleFetchFromSheet
+                  : () => setIsSyncModalOpen(true)
+              }
+              title={
+                syncLock?.isLocked
+                  ? "Click to Sync & Unlock System"
+                  : "Google Sheet in Sync (Click for Excel/Sheet Settings)"
+              }
+            >
+              {syncLock?.isLocked ? (
+                <>
+                  <Lock size={13} />
+                  <span>
+                    Out of Sync ({syncLock.diff > 0 ? `+${syncLock.diff}` : syncLock.diff})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={13} />
+                  <span>
+                    Synced ({packingManager.scanLog.length})
+                  </span>
+                </>
+              )}
+            </button>
+
+            <div
+              className="live-users-pill"
+              title="Live WebSocket Multi-User Synchronization Active across Wi-Fi network"
+            >
               <span className="live-pulse-dot" />
-              <span>{onlineUsers} {onlineUsers === 1 ? "Packer" : "Packers"} Live</span>
+              <span>
+                {onlineUsers} {onlineUsers === 1 ? "Packer" : "Packers"} Live
+              </span>
             </div>
 
             <button
@@ -495,7 +513,7 @@ export default function App() {
               style={{ gap: "6px" }}
             >
               <Share2 size={16} />
-              <span>Sync & Backup ({packingManager.scanLog.length})</span>
+              <span>Backup ({packingManager.scanLog.length})</span>
             </button>
 
             <button
@@ -566,13 +584,9 @@ export default function App() {
               setSelectedOrder={setSelectedOrder}
               orders={stats.orders}
               onKeyDown={handleKeyDown}
-              isLocked={!!syncAlert}
-              syncAlert={syncAlert}
-              onSyncNow={handleFetchFromSheet}
-              isSyncingNow={isSyncingNow}
             />
 
-            {query.trim() && !syncAlert ? (
+            {query.trim() ? (
               <div className="results-container">
                 <div className="results-header">
                   <div>
@@ -610,7 +624,7 @@ export default function App() {
                           totalCopies={allCopies.length || 1}
                           onCopy={handleCopySuccess}
                           onMarkPacked={handleMarkPacked}
-                          isLocked={!!syncAlert}
+                          isLocked={!!syncLock?.isLocked}
                         />
                       );
                     })}
@@ -635,30 +649,26 @@ export default function App() {
                   style={{ color: "var(--accent-blue)" }}
                 />
                 <div className="empty-title">
-                  {syncAlert ? "🔒 Search is Locked Until Synced" : "Start typing to search titles instantly"}
+                  Start typing to search titles instantly
                 </div>
                 <div className="empty-subtitle">
-                  {syncAlert
-                    ? "Click 'Sync & Unlock ⚡' above to fetch the latest Google Sheet changes."
-                    : "Searches run in under 0.2 milliseconds with FlexSearch in-memory index."}
+                  Searches run in under 0.2 milliseconds with FlexSearch in-memory index.
                 </div>
 
-                {!syncAlert && (
-                  <div className="sample-queries">
-                    {SAMPLE_QUERIES.map((sq) => (
-                      <button
-                        key={sq}
-                        className="sample-chip"
-                        onClick={() => {
-                          setQuery(sq);
-                          if (inputRef.current) inputRef.current.focus();
-                        }}
-                      >
-                        "{sq}"
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="sample-queries">
+                  {SAMPLE_QUERIES.map((sq) => (
+                    <button
+                      key={sq}
+                      className="sample-chip"
+                      onClick={() => {
+                        setQuery(sq);
+                        if (inputRef.current) inputRef.current.focus();
+                      }}
+                    >
+                      "{sq}"
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -680,7 +690,7 @@ export default function App() {
             packingManager={packingManager}
             onMarkPacked={handleMarkPacked}
             onCopy={handleCopySuccess}
-            isLocked={!!syncAlert}
+            isLocked={!!syncLock?.isLocked}
             packRevision={packRevision}
             orders={stats.orders}
           />
@@ -714,15 +724,16 @@ export default function App() {
         <SyncModal
           isOpen={isSyncModalOpen}
           onClose={() => setIsSyncModalOpen(false)}
-          webhookUrl={webhookUrl}
-          onSaveWebhook={(url) => {
-            setWebhookUrl(url);
-            packingManager.setWebhookUrl(url);
-          }}
           onExportExcel={() => packingManager.exportExcel(stats.orderTotals)}
           onFetchFromSheet={handleFetchFromSheet}
+          onImportExcelFile={(file) =>
+            packingManager.importExcelFile(file, (isbn) =>
+              searchEngine.getCopiesForIsbn(isbn),
+            )
+          }
           onImportPastedIsbns={handleImportPasted}
           onReloadBackup={handleReloadBackup}
+          totalScans={packingManager.scanLog.length}
         />
       </div>
 
@@ -731,10 +742,14 @@ export default function App() {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pack-toast ${toast.isRemote ? "remote-toast" : "local-toast"}`}
+            className={`pack-toast ${toast.isWarning ? "warning-toast" : toast.isRemote ? "remote-toast" : "local-toast"}`}
           >
             <div className="pack-toast-icon">
-              <PackageCheck size={18} />
+              {toast.isWarning ? (
+                <AlertTriangle size={18} />
+              ) : (
+                <PackageCheck size={18} />
+              )}
             </div>
             <div className="pack-toast-content">
               <div className="pack-toast-header">
@@ -742,7 +757,11 @@ export default function App() {
                   <span className="pack-toast-order">{toast.order}</span>
                 )}
                 <span className="pack-toast-badge">
-                  {toast.isRemote ? "⚡ Live Sync" : "✓ Packed"}
+                  {toast.isWarning
+                    ? "⛔ Already Packed"
+                    : toast.isRemote
+                      ? "⚡ Live Sync"
+                      : "✓ Packed"}
                 </span>
                 <span className="pack-toast-time">{toast.time}</span>
               </div>

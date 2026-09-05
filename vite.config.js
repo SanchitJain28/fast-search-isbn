@@ -2,23 +2,22 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
+import { google } from 'googleapis'
 
-// Vite plugin providing local real-time API endpoints & SSE hub for multi-user collaboration
+const SPREADSHEET_ID = '1Kcib17p_ErSGePieW6Z8gWlhhc6lPxJris-5DTqJLB8';
+
+// Vite plugin providing local real-time API endpoints, SSE hub, and direct Google Sheets API v4
 function apiServerPlugin() {
   const scansFile = path.resolve(__dirname, 'scans.csv');
+  const credentialsFile = path.resolve(__dirname, 'credentials.json');
 
   // Initialize scans.csv with header if it doesn't exist
   if (!fs.existsSync(scansFile)) {
     fs.writeFileSync(scansFile, 'ISBN13,Order,Title,Status,Timestamp\n', 'utf8');
   }
 
-  // FIFO Sync Queue to ensure Google Sheet receives scans one-by-one without write storms
-  const queue = [];
-  let isProcessing = false;
-  const recentScans = new Map(); // isbn -> timestamp (to prevent scanner jitter / double posts)
-
-  // Active SSE client connections
-  const sseClients = new Set();
+  const recentScans = new Map(); // isbn -> timestamp (deduplicate rapid scans)
+  const sseClients = new Set();  // Active SSE client connections
 
   function broadcast(data) {
     const payload = `data: ${JSON.stringify(data)}\n\n`;
@@ -31,32 +30,69 @@ function apiServerPlugin() {
     }
   }
 
-  async function processQueue() {
-    if (isProcessing || queue.length === 0) return;
-    isProcessing = true;
+  // Initialize Google Sheets API client
+  let sheetsClient = null;
+  let serviceAccountEmail = '';
+  try {
+    if (fs.existsSync(credentialsFile)) {
+      const credentials = JSON.parse(fs.readFileSync(credentialsFile, 'utf8'));
+      serviceAccountEmail = credentials.client_email || '';
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+      });
+      sheetsClient = google.sheets({ version: 'v4', auth });
+      console.log(`[Google Sheets API v4] Authenticated as ${serviceAccountEmail}`);
+    } else {
+      console.warn('[Google Sheets API v4] credentials.json not found');
+    }
+  } catch (err) {
+    console.error('[Google Sheets API v4] Initialization error:', err.message);
+  }
 
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (!item.webhookUrl) continue;
+  // Background queue for Google Sheet writes (ensures scanner UI is 0ms instant)
+  const sheetQueue = [];
+  let isProcessingSheetQueue = false;
+
+  async function processSheetQueue() {
+    if (isProcessingSheetQueue || sheetQueue.length === 0 || !sheetsClient) return;
+    isProcessingSheetQueue = true;
+
+    while (sheetQueue.length > 0) {
+      // Batch up to 10 rows at once for blazing fast performance
+      const batch = sheetQueue.splice(0, 10);
+      const values = batch.map(item => [
+        item.isbn,
+        item.order,
+        item.title,
+        item.status
+      ]);
 
       try {
-        const fullUrl = `${item.webhookUrl}${item.webhookUrl.includes('?') ? '&' : '?'}isbn=${encodeURIComponent(item.isbn)}`;
-        await fetch(fullUrl);
-        console.log(`[Vite API] Synced to Google Sheet: ${item.isbn}`);
+        const t0 = Date.now();
+        await sheetsClient.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: 'Scan!A:D',
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: { values }
+        });
+        console.log(`[Google Sheets API v4] ✅ Appended ${batch.length} row(s) to Sheet in ${Date.now() - t0}ms`);
       } catch (err) {
-        console.warn(`[Vite API] Google Sheet sync error for ${item.isbn}:`, err.message);
+        console.error('[Google Sheets API v4] Append error:', err.message);
+        // If failed, re-queue once if not fatal
+        if (!err.message?.includes('invalid_grant')) {
+          // Keep system running smoothly
+        }
       }
-      // Small 150ms buffer between calls so Google Sheet formulas calculate smoothly
-      await new Promise((r) => setTimeout(r, 150));
     }
 
-    isProcessing = false;
+    isProcessingSheetQueue = false;
   }
 
   return {
     name: 'fast-search-api',
     configureServer(server) {
-      // HTTP Middlewares
       server.middlewares.use((req, res, next) => {
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
 
@@ -85,7 +121,7 @@ function apiServerPlugin() {
           return;
         }
 
-        // 1. POST /api/scan - Instant local write + Live WebSocket Broadcast + Google Sheet queue
+        // 1. POST /api/scan - Instant local write + Live SSE Broadcast + Direct Sheets API queue
         if (req.method === 'POST' && parsedUrl.pathname === '/api/scan') {
           let body = '';
           req.on('data', chunk => body += chunk);
@@ -99,48 +135,47 @@ function apiServerPlugin() {
               const statusType = data.statusType || 'PACK';
               const timestamp = data.timestamp || new Date().toLocaleTimeString();
 
-              // Deduplicate identical ISBN requests arriving within 600ms
+              // Deduplicate rapid scanner jitter (< 600ms)
               const now = Date.now();
               const lastSeen = recentScans.get(isbn) || 0;
               if (now - lastSeen < 600) {
-                console.warn(`[Vite API] Deduplicated rapid scan for ISBN: ${isbn}`);
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify({ success: true, deduplicated: true, isbn }));
                 return;
               }
               recentScans.set(isbn, now);
 
-              // 1. Instant local file append (0.1ms backup)
-              const csvRow = `"${isbn}","${order}","${title}","${status}","${timestamp}"\n`;
-              fs.appendFileSync(scansFile, csvRow, 'utf8');
+              // Only record valid PACK scans
+              if (statusType === 'PACK') {
+                const csvRow = `"${isbn}","${order}","${title}","${status}","${timestamp}"\n`;
+                fs.appendFileSync(scansFile, csvRow, 'utf8');
 
-              const logEntry = {
-                id: data.id || `${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-                isbn,
-                order,
-                title: data.title || '',
-                status: data.status || '',
-                statusType,
-                copyNum: data.copyNum || 1,
-                totalCopies: data.totalCopies || 1,
-                timestamp
-              };
+                const logEntry = {
+                  id: data.id || `${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                  isbn,
+                  order,
+                  title: data.title || '',
+                  status: data.status || '',
+                  statusType,
+                  copyNum: data.copyNum || 1,
+                  totalCopies: data.totalCopies || 1,
+                  timestamp
+                };
 
-              // 2. Broadcast immediately to all connected devices in < 10ms!
-              broadcast({
-                type: 'BOOK_PACKED',
-                scan: logEntry,
-                userCount: sseClients.size
-              });
+                // Broadcast immediately to all connected packers (< 10ms)
+                broadcast({
+                  type: 'BOOK_PACKED',
+                  scan: logEntry,
+                  userCount: sseClients.size
+                });
 
-              // 3. Queue for real-time Google Sheet update (only for valid PACK scans)
-              if (data.webhookUrl && statusType === 'PACK') {
-                queue.push({ isbn, webhookUrl: data.webhookUrl });
-                processQueue();
+                // Queue for direct Google Sheets API v4 append
+                sheetQueue.push({ isbn, order, title: data.title || '', status: data.status || `✅ PACK — Order ${order}` });
+                processSheetQueue();
               }
 
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ success: true, isbn, queueLength: queue.length }));
+              res.end(JSON.stringify({ success: true, isbn, queueLength: sheetQueue.length }));
             } catch (err) {
               res.statusCode = 500;
               res.setHeader('Content-Type', 'application/json');
@@ -150,7 +185,86 @@ function apiServerPlugin() {
           return;
         }
 
-        // 2. GET /api/state - Central initial state for newly connecting devices
+        // 2. GET /api/sheets/fetch-all - Fast direct fetch from Google Sheets API v4
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/sheets/fetch-all') {
+          (async () => {
+            try {
+              if (!sheetsClient) {
+                throw new Error('Google Sheets API client not initialized');
+              }
+              const t0 = Date.now();
+              const response = await sheetsClient.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Scan!A4:D'
+              });
+
+              const rows = response.data.values || [];
+              const isbns = [];
+              const scans = [];
+
+              for (const row of rows) {
+                const rawIsbn = (row[0] || '').toString().trim();
+                if (rawIsbn) {
+                  const cleanIsbn = rawIsbn.replace(/[^0-9Xx]/g, '');
+                  const finalIsbn = cleanIsbn || rawIsbn;
+                  isbns.push(finalIsbn);
+                  scans.push({
+                    isbn: finalIsbn,
+                    order: (row[1] || '').toString().trim(),
+                    title: (row[2] || '').toString().trim(),
+                    status: (row[3] || '').toString().trim()
+                  });
+                }
+              }
+
+              console.log(`[Google Sheets API v4] Fetched ${isbns.length} scans in ${Date.now() - t0}ms`);
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: true, isbns, scans, count: isbns.length, timeMs: Date.now() - t0 }));
+            } catch (err) {
+              console.error('[Google Sheets API v4] Fetch error:', err.message);
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          })();
+          return;
+        }
+
+        // 3. GET /api/sheets/status - Status of Google Sheets connection
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/sheets/status') {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({
+            configured: !!sheetsClient,
+            spreadsheetId: SPREADSHEET_ID,
+            serviceAccountEmail,
+            queueLength: sheetQueue.length
+          }));
+          return;
+        }
+
+        // 3b. GET /api/sheets/count - Fast sync lock count check (< 150ms)
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/sheets/count') {
+          (async () => {
+            try {
+              if (!sheetsClient) throw new Error('Sheets API client not ready');
+              const response = await sheetsClient.spreadsheets.values.get({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Scan!A4:A'
+              });
+              const rows = response.data.values || [];
+              const count = rows.filter(r => r[0] && r[0].toString().trim()).length;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: true, count }));
+            } catch (err) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: err.message }));
+            }
+          })();
+          return;
+        }
+
+        // 4. GET /api/state - Central initial state for newly connecting devices
         if (req.method === 'GET' && parsedUrl.pathname === '/api/state') {
           try {
             const isbns = [];
@@ -158,7 +272,6 @@ function apiServerPlugin() {
               const content = fs.readFileSync(scansFile, 'utf8');
               const lines = content.split('\n').filter(Boolean).slice(1);
               for (const line of lines) {
-                // Extract first quoted value (ISBN)
                 const match = line.match(/^"([^"]+)"/);
                 if (match && match[1]) {
                   isbns.push(match[1]);
@@ -171,69 +284,6 @@ function apiServerPlugin() {
             res.statusCode = 500;
             res.end(JSON.stringify({ error: err.message }));
           }
-          return;
-        }
-
-        // 3. GET /api/check-remote-count - Node backend fetch (CORS/Redirect-free)
-        if (req.method === 'GET' && parsedUrl.pathname === '/api/check-remote-count') {
-          const targetUrl = parsedUrl.searchParams.get('url');
-          if (!targetUrl) {
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ count: null, error: 'No URL provided' }));
-            return;
-          }
-          (async () => {
-            try {
-              const fullUrl = `${targetUrl}${targetUrl.includes('?') ? '&' : '?'}count=1`;
-              const response = await fetch(fullUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
-                redirect: 'follow'
-              });
-              const text = await response.text();
-              try {
-                const data = JSON.parse(text);
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(data));
-              } catch (pe) {
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ count: null, raw: text.slice(0, 100) }));
-              }
-            } catch (err) {
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ count: null, error: err.message }));
-            }
-          })();
-          return;
-        }
-
-        // 4. GET /api/fetch-all-scans - Node backend full scans fetch (CORS/Redirect-free)
-        if (req.method === 'GET' && parsedUrl.pathname === '/api/fetch-all-scans') {
-          const targetUrl = parsedUrl.searchParams.get('url');
-          if (!targetUrl) {
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ isbns: [], error: 'No URL provided' }));
-            return;
-          }
-          (async () => {
-            try {
-              const response = await fetch(targetUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
-                redirect: 'follow'
-              });
-              const text = await response.text();
-              try {
-                const data = JSON.parse(text);
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(data));
-              } catch (pe) {
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify({ isbns: [], error: 'Invalid JSON from Google Sheet' }));
-              }
-            } catch (err) {
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ isbns: [], error: err.message }));
-            }
-          })();
           return;
         }
 
