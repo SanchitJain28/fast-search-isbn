@@ -1,107 +1,131 @@
-import FlexSearch from "flexsearch";
-
 export class BookSearchEngine {
   constructor() {
     this.records = [];
-    this.isbnMap = new Map(); // ISBN -> Array of records
+    this.isbnMap = new Map(); // cleanIsbn -> Array of records
+    this.isbnPrefixMap = new Map(); // isbnPrefix (>= 4 digits) -> Array of record IDs
+    this.tokenMap = new Map(); // tokenPrefix (>= 2 chars) -> Array of record IDs
     this.orders = new Set();
     this.orderTotals = new Map(); // Order -> count
-    this.index = null;
     this.isReady = false;
   }
 
   init(data) {
     console.time("SearchEngine.init");
-    this.records = data.map((item, idx) => ({
-      id: idx,
-      ...item,
-      Title: String(item.Title || "").trim(),
-      ISBN13: String(item.ISBN13 || "").trim(),
-      Order: String(item.Order || "").trim(),
-    }));
-
-    // Fast O(1) ISBN Map and Orders collection
+    const total = data.length;
+    this.records = new Array(total);
     this.isbnMap.clear();
+    this.isbnPrefixMap.clear();
+    this.tokenMap.clear();
     this.orders.clear();
     this.orderTotals.clear();
 
-    for (let i = 0; i < this.records.length; i++) {
-      const item = this.records[i];
-      const isbn = item.ISBN13;
-      const order = item.Order;
+    for (let i = 0; i < total; i++) {
+      const item = data[i];
+      const title = String(item.Title || "").trim();
+      const isbnRaw = String(item.ISBN13 || "").trim();
+      const cleanIsbn = isbnRaw.replace(/[^0-9Xx]/g, "");
+      const order = String(item.Order || "").trim();
+      const lowerTitle = title.toLowerCase();
 
+      const record = {
+        id: i,
+        Order: order,
+        ISBN13: cleanIsbn || isbnRaw,
+        Title: title,
+        Qty: item.Qty != null ? item.Qty : 1,
+        key: item.key || cleanIsbn || isbnRaw,
+        seqkey: item.seqkey || `${cleanIsbn || isbnRaw}|1`,
+        copies: item.copies != null ? item.copies : 1,
+        lowerTitle: lowerTitle,
+        lowerIsbn: (cleanIsbn || isbnRaw).toLowerCase(),
+      };
+
+      this.records[i] = record;
+
+      // Track Orders
       if (order) {
         this.orders.add(order);
         this.orderTotals.set(order, (this.orderTotals.get(order) || 0) + 1);
       }
 
-      if (isbn) {
-        if (!this.isbnMap.has(isbn)) {
-          this.isbnMap.set(isbn, []);
+      // Track exact ISBN Map
+      const finalIsbn = record.ISBN13;
+      if (finalIsbn) {
+        let arr = this.isbnMap.get(finalIsbn);
+        if (!arr) {
+          arr = [];
+          this.isbnMap.set(finalIsbn, arr);
         }
-        this.isbnMap.get(isbn).push(item);
+        arr.push(record);
+
+        // Index ISBN prefixes (from 4 digits up to length)
+        for (let l = 4; l <= finalIsbn.length; l++) {
+          const prefix = finalIsbn.substring(0, l);
+          let pList = this.isbnPrefixMap.get(prefix);
+          if (!pList) {
+            pList = [];
+            this.isbnPrefixMap.set(prefix, pList);
+          }
+          pList.push(i);
+        }
       }
-    }
 
-    // FlexSearch Document index
-    this.index = new FlexSearch.Document({
-      document: {
-        id: "id",
-        index: [
-          {
-            field: "Title",
-            tokenize: "forward",
-            resolution: 9,
-            minlength: 1,
-            optimize: true,
-          },
-          {
-            field: "ISBN13",
-            tokenize: "strict",
-            resolution: 9,
-          },
-        ],
-        store: [
-          "id",
-          "Order",
-          "ISBN13",
-          "Title",
-          "Qty",
-          "key",
-          "seqkey",
-          "copies",
-        ],
-      },
-    });
+      // Index Title Tokens
+      const words = lowerTitle.split(/[^a-z0-9]+/);
+      const seenWords = new Set();
 
-    for (let i = 0; i < this.records.length; i++) {
-      this.index.add(this.records[i]);
+      for (let w = 0; w < words.length; w++) {
+        const word = words[w];
+        if (!word || word.length < 2 || seenWords.has(word)) continue;
+        seenWords.add(word);
+
+        // Index word prefixes from 2 up to 8 characters
+        const maxPrefixLen = Math.min(word.length, 8);
+        for (let l = 2; l <= maxPrefixLen; l++) {
+          const prefix = word.substring(0, l);
+          let tList = this.tokenMap.get(prefix);
+          if (!tList) {
+            tList = [];
+            this.tokenMap.set(prefix, tList);
+          }
+          tList.push(i);
+        }
+      }
     }
 
     this.isReady = true;
     console.timeEnd("SearchEngine.init");
+
     return {
       totalRecords: this.records.length,
-      orders: Array.from(this.orders).sort(),
+      orders: Array.from(this.orders).sort((a, b) => {
+        const numA = Number(a);
+        const numB = Number(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      }),
       orderTotals: Object.fromEntries(this.orderTotals),
     };
   }
 
   search(query, options = {}) {
-    if (!this.isReady || !query || !query.trim()) {
+    if (!this.isReady || !query) {
       return { results: [], latencyMs: 0, totalMatches: 0 };
     }
 
     const startTime = performance.now();
     const rawQuery = String(query).trim();
-    const cleanQuery = rawQuery.toLowerCase();
+    if (!rawQuery) {
+      return { results: [], latencyMs: 0, totalMatches: 0 };
+    }
+
     const limit = options.limit || 60;
     const filterOrder = options.order || "ALL";
 
-    // 1. Check direct exact ISBN lookup first (0.005ms)
-    const cleanIsbn = rawQuery.replace(/[-\s]/g, "");
-    if (/^\d{9,13}$/.test(cleanIsbn) && this.isbnMap.has(cleanIsbn)) {
-      let matches = this.isbnMap.get(cleanIsbn);
+    // 1. Direct exact ISBN lookup (0.002ms)
+    const cleanDigits = rawQuery.replace(/[^0-9Xx]/g, "");
+    if (cleanDigits.length >= 9 && this.isbnMap.has(cleanDigits)) {
+      let matches = this.isbnMap.get(cleanDigits);
       if (filterOrder !== "ALL") {
         matches = matches.filter((r) => String(r.Order) === filterOrder);
       }
@@ -113,79 +137,111 @@ export class BookSearchEngine {
       };
     }
 
-    // 2. Multi-token FlexSearch
-    const searchRes = this.index.search(cleanQuery, {
-      limit: limit * 2,
-      enrich: true,
-    });
-
-    const seenIds = new Set();
-    const matchedDocs = [];
-
-    // Combine results from Title and ISBN fields
-    if (searchRes && searchRes.length > 0) {
-      for (const fieldRes of searchRes) {
-        for (const item of fieldRes.result) {
-          const doc = item.doc;
-          if (doc && !seenIds.has(doc.id)) {
-            seenIds.add(doc.id);
+    // 2. Partial ISBN search (e.g. user typed 4 to 8 digits of barcode)
+    if (/^\d{4,8}$/.test(cleanDigits)) {
+      const isbnMatches = this.isbnPrefixMap.get(cleanDigits);
+      if (isbnMatches && isbnMatches.length > 0) {
+        const matchedDocs = [];
+        const seen = new Set();
+        for (let i = 0; i < isbnMatches.length; i++) {
+          const doc = this.records[isbnMatches[i]];
+          if (!seen.has(doc.id)) {
+            seen.add(doc.id);
             if (filterOrder === "ALL" || String(doc.Order) === filterOrder) {
               matchedDocs.push(doc);
+              if (matchedDocs.length >= limit * 2) break;
             }
           }
         }
+        if (matchedDocs.length > 0) {
+          const endTime = performance.now();
+          return {
+            results: matchedDocs.slice(0, limit),
+            latencyMs: +(endTime - startTime).toFixed(3),
+            totalMatches: matchedDocs.length,
+          };
+        }
       }
     }
 
-    // 3. Fallback: Sub-string scanning if flexsearch returned few/no results
-    if (matchedDocs.length === 0 && cleanQuery.length >= 2) {
-      const tokens = cleanQuery.split(/\s+/).filter(Boolean);
-      for (let i = 0; i < this.records.length; i++) {
-        const doc = this.records[i];
-        if (filterOrder !== "ALL" && String(doc.Order) !== filterOrder)
-          continue;
+    // 3. Multi-token Title Search
+    const cleanQuery = rawQuery.toLowerCase();
+    const tokens = cleanQuery.split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
 
-        const titleLower = String(doc.Title || "").toLowerCase();
-        let allTokensMatch = true;
-        for (let t = 0; t < tokens.length; t++) {
-          if (!titleLower.includes(tokens[t])) {
-            allTokensMatch = false;
-            break;
+    let candidateIds = null;
+
+    if (tokens.length > 0) {
+      for (let t = 0; t < tokens.length; t++) {
+        const tok = tokens[t];
+        const searchPrefix = tok.substring(0, 8);
+        const ids = this.tokenMap.get(searchPrefix);
+
+        if (!ids || ids.length === 0) {
+          candidateIds = [];
+          break;
+        }
+
+        if (candidateIds === null) {
+          candidateIds = [...ids];
+        } else {
+          // Intersect with candidate set
+          const currentSet = new Set(ids);
+          candidateIds = candidateIds.filter((id) => currentSet.has(id));
+          if (candidateIds.length === 0) break;
+        }
+      }
+    }
+
+    const matchedDocs = [];
+    const seenIds = new Set();
+
+    if (candidateIds && candidateIds.length > 0) {
+      for (let i = 0; i < candidateIds.length; i++) {
+        const doc = this.records[candidateIds[i]];
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          if (filterOrder === "ALL" || String(doc.Order) === filterOrder) {
+            matchedDocs.push(doc);
           }
         }
+      }
+    }
 
-        if (allTokensMatch) {
+    // 4. Fallback: Fast linear substring scan if 0 matches
+    if (matchedDocs.length === 0 && cleanQuery.length >= 2) {
+      for (let i = 0; i < this.records.length; i++) {
+        const doc = this.records[i];
+        if (filterOrder !== "ALL" && String(doc.Order) !== filterOrder) continue;
+
+        if (doc.lowerTitle.includes(cleanQuery) || doc.lowerIsbn.includes(cleanQuery)) {
           matchedDocs.push(doc);
-          if (matchedDocs.length >= limit) break;
+          if (matchedDocs.length >= limit * 2) break;
         }
       }
     }
 
-    // Rank results: exact start of title / exact phrase higher
+    // Rank results: exact phrase at start of title ranked highest
     matchedDocs.sort((a, b) => {
-      const aTitle = String(a.Title || "").toLowerCase();
-      const bTitle = String(b.Title || "").toLowerCase();
-      const aStarts = aTitle.startsWith(cleanQuery) ? -1 : 0;
-      const bStarts = bTitle.startsWith(cleanQuery) ? -1 : 0;
+      const aStarts = a.lowerTitle.startsWith(cleanQuery) ? -1 : 0;
+      const bStarts = b.lowerTitle.startsWith(cleanQuery) ? -1 : 0;
       if (aStarts !== bStarts) return aStarts - bStarts;
       return 0;
     });
 
     const finalResults = matchedDocs.slice(0, limit);
     const endTime = performance.now();
-    const latencyMs = +(endTime - startTime).toFixed(3);
 
     return {
       results: finalResults,
-      latencyMs: latencyMs,
+      latencyMs: +(endTime - startTime).toFixed(3),
       totalMatches: matchedDocs.length,
     };
   }
 
-  // Get total copies ordered for a given ISBN
+  // Get all copies ordered for a given ISBN
   getCopiesForIsbn(isbn) {
-    const clean = String(isbn || "").trim();
-    return this.isbnMap.get(clean) || [];
+    const clean = String(isbn || "").trim().replace(/[^0-9Xx]/g, "");
+    return this.isbnMap.get(clean) || this.isbnMap.get(String(isbn).trim()) || [];
   }
 }
 

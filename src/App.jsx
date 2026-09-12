@@ -130,7 +130,7 @@ export default function App() {
       clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
-  }, [checkSyncStatus, packRevision]);
+  }, [checkSyncStatus]);
 
   // Initialize Theme
   useEffect(() => {
@@ -160,8 +160,12 @@ export default function App() {
     return unsubscribe;
   }, [addToast]);
 
-  // Load Data and Build FlexSearch Index + Auto-Sync from Google Sheets API
+  // Load Data and Build Search Index + Auto-Sync from Google Sheets API
+  const hasLoadedDataRef = useRef(false);
   useEffect(() => {
+    if (hasLoadedDataRef.current) return;
+    hasLoadedDataRef.current = true;
+
     async function loadData() {
       try {
         const res = await fetch("/master.json");

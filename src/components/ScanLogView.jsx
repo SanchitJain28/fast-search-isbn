@@ -1,7 +1,9 @@
-import React from 'react';
-import { FileSpreadsheet, Trash2, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileSpreadsheet, Trash2, CheckCircle2, ChevronDown } from 'lucide-react';
 
 export default function ScanLogView({ scanLog = [], onClear, onExportExcel }) {
+  const [displayCount, setDisplayCount] = useState(100);
+
   if (scanLog.length === 0) {
     return (
       <div className="empty-state">
@@ -14,11 +16,18 @@ export default function ScanLogView({ scanLog = [], onClear, onExportExcel }) {
     );
   }
 
+  const visibleScans = scanLog.slice(0, displayCount);
+
   return (
     <div className="scan-log-container">
       <div className="results-header">
         <div>
           Total Scans: <strong>{scanLog.length}</strong>
+          {scanLog.length > displayCount && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+              (Showing latest {displayCount})
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -39,7 +48,7 @@ export default function ScanLogView({ scanLog = [], onClear, onExportExcel }) {
       </div>
 
       <div className="results-list">
-        {scanLog.map((scan) => (
+        {visibleScans.map((scan) => (
           <div key={scan.id} className="result-card">
             <div className="card-left">
               <div className="card-title-row">
@@ -58,6 +67,26 @@ export default function ScanLogView({ scanLog = [], onClear, onExportExcel }) {
             </div>
           </div>
         ))}
+
+        {scanLog.length > displayCount && (
+          <div style={{ textAlign: 'center', margin: '16px 0' }}>
+            <button
+              className="icon-btn"
+              onClick={() => setDisplayCount((prev) => prev + 100)}
+              style={{
+                width: 'auto',
+                padding: '8px 16px',
+                fontSize: '13px',
+                margin: '0 auto',
+                background: 'var(--card-bg)',
+                border: '1px solid var(--border-color)',
+                gap: '6px'
+              }}
+            >
+              <ChevronDown size={16} /> Load next 100 scans ({scanLog.length - displayCount} remaining)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
