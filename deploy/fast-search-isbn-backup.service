@@ -1,0 +1,16 @@
+[Unit]
+Description=Consistent backup of book packing database and matching catalog
+
+[Service]
+Type=oneshot
+User=bookscanner
+Group=bookscanner
+WorkingDirectory=/opt/fast-search-isbn/current
+Environment=PACKING_BACKUP_DIR=/var/lib/fast-search-isbn/backups
+Environment=PACKING_DB=/var/lib/fast-search-isbn/packing.sqlite
+ExecStart=/usr/bin/node scripts/backup-db.mjs
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fast-search-isbn

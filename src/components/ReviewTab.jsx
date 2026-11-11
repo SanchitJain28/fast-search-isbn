@@ -1,3 +1,4 @@
+import { Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions, NativeSelect, ListItemButton } from '@mui/material';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   ClipboardCheck, 
@@ -23,6 +24,7 @@ export default function ReviewTab({
   onCopy,
   isLocked = false,
   packRevision = 0,
+  onCountChange,
   orders = []
 }) {
   const inputRef = useRef(null);
@@ -97,6 +99,7 @@ export default function ReviewTab({
   }, [titlesList, sidebarSearch]);
 
   const totalCount = titlesList.length;
+  useEffect(() => { onCountChange?.(totalCount); }, [totalCount, onCountChange]);
 
   // Custom Titles Saver
   const handleSaveCustomTitles = () => {
@@ -159,7 +162,7 @@ export default function ReviewTab({
         </div>
 
         <div className="review-header-stats">
-          <button
+          <Button variant="outlined"
             className="custom-titles-btn"
             onClick={() => {
               setCustomText(titlesList.join('\n'));
@@ -168,15 +171,15 @@ export default function ReviewTab({
             title="Paste or edit title list"
           >
             <PlusCircle size={15} /> Edit / Paste List
-          </button>
+          </Button>
 
-          <button
+          <Button variant="outlined"
             className="reset-titles-btn"
             onClick={handleResetToDefault}
             title="Reset to src/data/titles.txt"
           >
             <RotateCcw size={14} /> Reset Default
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -187,16 +190,17 @@ export default function ReviewTab({
           {/* Sidebar Search & Filters */}
           <div className="review-sidebar-search">
             <Search size={15} style={{ opacity: 0.5 }} />
-            <input
+            <TextField fullWidth
               type="text"
+              slotProps={{ htmlInput: { 'aria-label': 'Filter review titles' } }}
               placeholder="Filter review titles..."
               value={sidebarSearch}
               onChange={e => setSidebarSearch(e.target.value)}
             />
             {sidebarSearch && (
-              <button className="clear-btn-sm" onClick={() => setSidebarSearch('')}>
+              <Button variant="outlined" className="clear-btn-sm" onClick={() => setSidebarSearch('')}>
                 <X size={13} />
-              </button>
+              </Button>
             )}
           </div>
 
@@ -209,7 +213,7 @@ export default function ReviewTab({
                 const lineVariants = titleLine.split(',').map(v => v.trim()).filter(Boolean);
 
                 return (
-                  <div
+                  <ListItemButton
                     key={`title-${idx}`}
                     className={`review-title-item ${isSelected ? 'selected' : ''}`}
                     onClick={() => setSelectedIndex(idx)}
@@ -230,7 +234,7 @@ export default function ReviewTab({
                         ))}
                       </div>
                     )}
-                  </div>
+                  </ListItemButton>
                 );
               })
             ) : (
@@ -254,20 +258,20 @@ export default function ReviewTab({
 
                   {/* Nav Buttons */}
                   <div className="active-title-nav">
-                    <button
+                    <Button variant="outlined"
                       className="nav-arrow-btn"
                       onClick={handlePrevTitle}
                       title="Previous Book (Up Arrow)"
                     >
                       <ArrowLeft size={15} /> Prev
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="outlined"
                       className="nav-arrow-btn"
                       onClick={handleNextTitle}
                       title="Next Book (Down Arrow)"
                     >
                       Next <ArrowRight size={15} />
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -278,9 +282,10 @@ export default function ReviewTab({
                 {/* Main Normal Search Box (prefilled with title) */}
                 <div className="review-refine-search-box" style={{ marginTop: '8px', padding: '10px 14px' }}>
                   <Search size={18} style={{ color: 'var(--accent-blue)', flexShrink: 0 }} />
-                  <input
-                    ref={inputRef}
+                  <TextField fullWidth
+                    inputRef={inputRef}
                     type="text"
+                    slotProps={{ htmlInput: { 'aria-label': 'Refine title search' } }}
                     className="review-refine-input"
                     style={{ fontSize: '15px', fontWeight: 600 }}
                     placeholder="Type or adjust search query..."
@@ -289,7 +294,7 @@ export default function ReviewTab({
                     autoFocus
                   />
                   {searchQuery && (
-                    <button
+                    <Button variant="outlined"
                       className="clear-btn-sm"
                       onClick={() => {
                         setSearchQuery('');
@@ -298,7 +303,7 @@ export default function ReviewTab({
                       title="Clear search"
                     >
                       <X size={16} />
-                    </button>
+                    </Button>
                   )}
                 </div>
 
@@ -309,7 +314,7 @@ export default function ReviewTab({
                       Quick Switch Title:
                     </span>
                     {currentVariants.map((v, i) => (
-                      <button
+                      <Button variant="outlined"
                         key={i}
                         className={`active-variant-chip ${searchQuery === v ? 'selected' : ''}`}
                         onClick={() => setSearchQuery(v)}
@@ -317,7 +322,7 @@ export default function ReviewTab({
                       >
                         <Sparkles size={11} style={{ opacity: 0.7 }} />
                         {v}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}
@@ -327,7 +332,7 @@ export default function ReviewTab({
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                     Filter Order:
                   </span>
-                  <select
+                  <NativeSelect
                     className="order-select-sm"
                     value={selectedOrder}
                     onChange={e => setSelectedOrder(e.target.value)}
@@ -336,7 +341,7 @@ export default function ReviewTab({
                     {orders.map(o => (
                       <option key={o} value={o}>Order {o}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
 
                   <div className="results-meta-tag">
                     <Zap size={12} style={{ display: 'inline', marginRight: '3px' }} />
@@ -400,44 +405,11 @@ export default function ReviewTab({
       </div>
 
       {/* Custom Title List Modal */}
-      {isCustomModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsCustomModalOpen(false)}>
-          <div className="modal-card custom-titles-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ClipboardCheck size={20} style={{ color: 'var(--accent-blue)' }} />
-                <h3 style={{ margin: 0 }}>Custom Review Titles List</h3>
-              </div>
-              <button className="icon-btn" onClick={() => setIsCustomModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                Paste or edit your book titles below (<strong>1 title per line</strong>):
-              </p>
-
-              <textarea
-                className="custom-titles-textarea"
-                rows={12}
-                value={customText}
-                onChange={e => setCustomText(e.target.value)}
-                placeholder="Enter title lines here..."
-              />
-            </div>
-
-            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button className="btn-secondary" onClick={() => setIsCustomModalOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={handleSaveCustomTitles}>
-                Save & Load ({customText.split('\n').filter(l => l.trim()).length} Titles)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={isCustomModalOpen} onClose={() => setIsCustomModalOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Custom review titles</DialogTitle>
+        <DialogContent><TextField fullWidth multiline rows={12} label="One title per line" value={customText} onChange={e => setCustomText(e.target.value)} sx={{ mt: 1 }} /></DialogContent>
+        <DialogActions><Button onClick={() => setIsCustomModalOpen(false)}>Cancel</Button><Button variant="contained" onClick={handleSaveCustomTitles}>Load {customText.split('\n').filter(l => l.trim()).length} titles</Button></DialogActions>
+      </Dialog>
     </div>
   );
 }

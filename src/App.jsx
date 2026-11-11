@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
-import { BookSearchEngine, searchEngine } from "./search/engine";
+import { searchEngine } from "./search/engine";
 import { packingManager } from "./utils/sync";
 import { soundFx } from "./utils/audio";
 import SearchBox from "./components/SearchBox";
@@ -14,28 +14,11 @@ import RecentCopies from "./components/RecentCopies";
 import ProgressDashboard from "./components/ProgressDashboard";
 import ScanLogView from "./components/ScanLogView";
 import SyncModal from "./components/SyncModal";
-import ReviewTab from "./components/ReviewTab";
-import {
-  Zap,
-  BookOpen,
-  Volume2,
-  VolumeX,
-  Sun,
-  Moon,
-  Search as SearchIcon,
-  BarChart3,
-  ListOrdered,
-  Sparkles,
-  Share2,
-  BellRing,
-  RefreshCw,
-  X,
-  ClipboardCheck,
-  PackageCheck,
-  AlertTriangle,
-  Lock,
-  CheckCircle2,
-} from "lucide-react";
+import StationStatus from './components/StationStatus';
+import ScanningWorkspace from "./components/ScanningWorkspace";
+import CoverMatch from './components/CoverMatch';
+import { MenuBook as BookOpen, VolumeUp as Volume2, VolumeOff, Search as SearchIcon, BarChart as BarChart3, FormatListNumbered as ListOrdered, AutoAwesome as Sparkles, Share as Share2, Close as X, Inventory2 as PackageCheck, WarningAmber as AlertTriangle, PhotoCamera, ImageSearch, TextFields } from '@mui/icons-material';
+import { ThemeProvider, createTheme, CssBaseline, Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Typography, Switch, Divider, Button, Chip, CircularProgress, IconButton, Tooltip } from '@mui/material';
 import "./App.css";
 
 const SAMPLE_QUERIES = [
@@ -54,7 +37,16 @@ export default function App() {
     orders: [],
     orderTotals: {},
   });
-  const [activeTab, setActiveTab] = useState("search"); // 'search' | 'progress' | 'scans'
+  const [activeTab, changeTab] = useState(() => new URLSearchParams(window.location.search).get('tab') === 'cover' || packingManager.pending?.confirmationToken ? 'cover' : 'scanning');
+  const [coverMode, setCoverMode] = useState('vector');
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const setActiveTab = useCallback(tab => {
+    const url = new URL(window.location.href);
+    if (tab === 'cover') url.searchParams.set('tab', 'cover');
+    else if (url.searchParams.get('tab') === 'cover') url.searchParams.delete('tab');
+    if (url.href !== window.location.href) window.history.replaceState(null, '', url);
+    changeTab(tab);
+  }, []);
   const [query, setQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState("ALL");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -64,8 +56,6 @@ export default function App() {
   const [packRevision, setPackRevision] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState(packingManager.connectedUsers || 1);
   const [toasts, setToasts] = useState([]);
-  const [syncLock, setSyncLock] = useState(null); // { isLocked: true, remoteCount: X, localCount: Y, diff: X - Y }
-  const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   const addToast = useCallback((toast) => {
     const id = Date.now() + Math.random();
@@ -83,84 +73,49 @@ export default function App() {
     }
   });
 
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem("fast_search_theme") || "dark";
-  });
   const [muted, setMuted] = useState(false);
 
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
-  // Sync Verification Check (Verifies local count matches Sheet count)
-  const checkSyncStatus = useCallback(async () => {
-    try {
-      // Don't flag sync lock if user scanned locally in the last 4 seconds
-      if (Date.now() - packingManager.lastLocalScanTime < 4000) return;
-
-      const res = await fetch("/api/sheets/count");
-      if (!res.ok) return;
-      const data = await res.json();
-      if (typeof data.count === "number") {
-        const remoteCount = data.count;
-        const localTotalCount = packingManager.scanLog.length;
-
-        if (remoteCount !== localTotalCount && Math.abs(remoteCount - localTotalCount) > 0) {
-          setSyncLock({
-            isLocked: true,
-            remoteCount,
-            localCount: localTotalCount,
-            diff: remoteCount - localTotalCount,
-          });
-        } else {
-          setSyncLock(null);
-        }
-      }
-    } catch (e) {
-      console.warn("Sync check error:", e);
-    }
-  }, []);
-
-  // Check sync health periodically and on window focus
   useEffect(() => {
-    checkSyncStatus();
-    const interval = setInterval(checkSyncStatus, 15000);
-    const onFocus = () => checkSyncStatus();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [checkSyncStatus]);
+    const interval = setInterval(() => packingManager.health(), 10000);
+    const focus = () => { void packingManager.health(); packingManager.scheduleRecovery(0, true); };
+    window.addEventListener('focus', focus);
+    return () => { clearInterval(interval); window.removeEventListener('focus', focus); };
+  }, []);
 
   // Initialize Theme
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("fast_search_theme", theme);
-  }, [theme]);
+    document.documentElement.setAttribute("data-theme", "dark");
+  }, []);
 
-  // Subscribe to Central WebSocket/SSE Hub for Real-Time Multi-User Packing
+  // Subscribe to server events for all scanning stations
   useEffect(() => {
     setOnlineUsers(packingManager.connectedUsers || 1);
     const unsubscribe = packingManager.subscribe((type, data) => {
-      if (type === "USER_COUNT") {
+      if (["STATE", "HEALTH"].includes(type)) {
+        setPackRevision(r => r + 1);
+        setOnlineUsers(packingManager.connectedUsers);
+      } else if (type === "USER_COUNT") {
         setOnlineUsers(data || 1);
-      } else if (type === "BOOK_PACKED" && data) {
+      } else if (["BOOK_PACKED", "BOOK_EDITED"].includes(type) && data) {
         setPackRevision((r) => r + 1);
-        addToast({
+        if (data.station !== packingManager.station) addToast({
           title: data.title || `ISBN: ${data.isbn}`,
           order: data.order ? `Order ${data.order}` : '',
-          status: data.statusType === 'PACK' ? 'Packed by other packer' : data.statusType,
+          status: type === 'BOOK_EDITED' ? `Corrected by other packer · ${data.statusType}` : data.statusType === 'PACK' ? 'Packed by other packer' : data.statusType,
+          station: data.station,
           isRemote: true,
+          isWarning: data.statusType !== 'PACK',
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         });
-      } else if (type === "SCANS_CLEARED") {
-        setPackRevision((r) => r + 1);
       }
     });
     return unsubscribe;
   }, [addToast]);
 
-  // Load Data and Build Search Index + Auto-Sync from Google Sheets API
+  // Load local catalog and authoritative server history
   const hasLoadedDataRef = useRef(false);
   useEffect(() => {
     if (hasLoadedDataRef.current) return;
@@ -173,45 +128,9 @@ export default function App() {
         const info = searchEngine.init(data);
         setStats(info);
 
-        // 1. Direct fetch from Google Sheets API v4 on startup
-        let sheetSynced = false;
-        try {
-          const sheetCount = await packingManager.fetchFromGoogleSheet((isbn) =>
-            searchEngine.getCopiesForIsbn(isbn)
-          );
-          if (sheetCount > 0 || packingManager.scanLog.length > 0) {
-            sheetSynced = true;
-            setPackRevision((r) => r + 1);
-            console.log(
-              `⚡ Auto-loaded ${packingManager.scanLog.length} live scans from Google Sheets API on startup.`
-            );
-          }
-        } catch (sheetErr) {
-          console.warn("Sheet startup sync skipped:", sheetErr);
-        }
-
-        // 2. Fallback to server pool or backup if sheet not accessible
-        if (!sheetSynced) {
-          const serverSynced = await packingManager.syncInitialStateFromServer((isbn) =>
-            searchEngine.getCopiesForIsbn(isbn),
-          );
-          if (!serverSynced && packingManager.scanLog.length === 0) {
-            try {
-              const scanRes = await fetch("/initial_scans.json");
-              if (scanRes.ok) {
-                const initIsbns = await scanRes.json();
-                if (Array.isArray(initIsbns) && initIsbns.length > 0) {
-                  packingManager.importScans(initIsbns, (isbn) =>
-                    searchEngine.getCopiesForIsbn(isbn),
-                  );
-                  setPackRevision((r) => r + 1);
-                }
-              }
-            } catch (scanErr) {}
-          } else {
-            setPackRevision((r) => r + 1);
-          }
-        }
+        try { await packingManager.refresh(); }
+        catch { addToast({ title: 'Central server unavailable', status: 'Scanning requires the server connection.', isWarning: true }); }
+        setPackRevision(r => r + 1);
 
         setLoading(false);
       } catch (err) {
@@ -222,7 +141,7 @@ export default function App() {
     loadData();
   }, []);
 
-  // Execute Search (Sub-0.2ms FlexSearch in-memory search)
+  // Search the in-memory catalog
   const { results, latencyMs, totalMatches } = useMemo(() => {
     if (!query.trim()) {
       return { results: [], latencyMs: 0, totalMatches: 0 };
@@ -238,61 +157,27 @@ export default function App() {
     setSelectedIndex(0);
   }, [query, selectedOrder]);
 
-  // Packing cooldown ref to prevent accidental rapid double-clicks/scanner bounces
-  const lastPackRef = useRef({ isbn: '', time: 0 });
-
-  // Handle Mark Packed with 600ms debounce protection
-  const handleMarkPacked = (item) => {
-    const isbn = String(item.ISBN13 || "").trim();
-    const now = Date.now();
-
-    // Prevent duplicate triggers for the same ISBN within 600ms (mouse microswitch bounce or barcode scanner CR/LF)
-    if (lastPackRef.current.isbn === isbn && now - lastPackRef.current.time < 600) {
-      console.warn(`[Debounce] Ignored rapid duplicate click for ISBN: ${isbn}`);
-      return null;
+  const handleMarkPacked = async (item) => {
+    try {
+      const entry = await packingManager.markPacked(String(item.ISBN13 || '').trim());
+      setPackRevision(r => r + 1);
+      if (entry.statusType === 'PACK') { handleCopySuccess(item); soundFx.copySuccess(); }
+      else soundFx.duplicateWarning();
+      return entry;
+    } catch (error) {
+      addToast({ title: 'Scan not confirmed', status: error.message, isWarning: true });
+      return { statusType: 'ERROR', status: error.message };
     }
-    lastPackRef.current = { isbn, time: now };
+  };
 
-    const candidates = searchEngine.getCopiesForIsbn(isbn);
-    const totalCopies = candidates.length || 1;
-    const currentPacked = packingManager.getPackedCount(isbn);
-
-    // If already fully packed, warn user immediately and DO NOT record duplicate garbage
-    if (currentPacked >= totalCopies) {
-      soundFx.duplicateWarning();
-      addToast({
-        title: item.Title || `ISBN: ${isbn}`,
-        order: item.Order ? `Order ${item.Order}` : "",
-        status: `Already packed (${currentPacked}/${totalCopies})`,
-        isWarning: true,
-        isRemote: false,
-        time: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }),
-      });
-      return {
-        statusType: "DUPLICATE",
-        status: `⛔ DUPLICATE (${currentPacked}/${totalCopies} packed) — set aside`,
-      };
+  const handleVoidScan = async (scan) => {
+    try {
+      await packingManager.voidScan(scan.id);
+      setPackRevision(r => r + 1);
+      addToast({ title: 'Scan Removed', status: `${scan.title || scan.isbn} removed from packing.`, isWarning: false });
+    } catch (err) {
+      addToast({ title: 'Could not remove scan', status: err.message, isWarning: true });
     }
-
-    const logEntry = packingManager.markPacked(isbn, candidates);
-    setPackRevision((r) => r + 1);
-    handleCopySuccess(item);
-
-    if (logEntry && logEntry.statusType === "PACK") {
-      addToast({
-        title: logEntry.title || `ISBN: ${logEntry.isbn}`,
-        order: logEntry.order ? `Order ${logEntry.order}` : "",
-        status: "Packed by you",
-        isRemote: false,
-        time: logEntry.timestamp,
-      });
-    }
-
-    return logEntry;
   };
 
   // Keyboard navigation & Shortcuts
@@ -315,6 +200,7 @@ export default function App() {
       });
     } else if (e.key === "Enter") {
       e.preventDefault();
+      if (e.repeat) return;
       const target = results[selectedIndex];
       if (target) {
         handleMarkPacked(target);
@@ -347,10 +233,6 @@ export default function App() {
     });
   };
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
-
   const toggleAudio = () => {
     const isMuted = soundFx.toggleMute();
     setMuted(isMuted);
@@ -360,221 +242,121 @@ export default function App() {
     return packingManager.getProgress(stats.orderTotals);
   }, [packRevision, stats.orderTotals]);
 
-  // Import existing scans from Sheet
-  const handleFetchFromSheet = async () => {
-    setIsSyncingNow(true);
-    try {
-      const count = await packingManager.fetchFromGoogleSheet((isbn) =>
-        searchEngine.getCopiesForIsbn(isbn),
-      );
-      setPackRevision((r) => r + 1);
-      setSyncLock(null);
-      addToast({
-        title: "⚡ Google Sheet Synced",
-        status: `Imported ${count} packed books. System unlocked!`,
-        isWarning: false,
-        time: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }),
-      });
-      setTimeout(() => {
-        if (inputRef.current) inputRef.current.focus();
-      }, 100);
-      return count;
-    } catch (err) {
-      console.warn("Fetch from sheet error:", err.message);
-      throw err;
-    } finally {
-      setIsSyncingNow(false);
-    }
-  };
-
-  // Import pasted ISBNs
-  const handleImportPasted = (isbns) => {
-    const count = packingManager.importScans(isbns, (isbn) =>
-      searchEngine.getCopiesForIsbn(isbn),
-    );
-    setPackRevision((r) => r + 1);
-    setTimeout(() => {
-      if (inputRef.current) inputRef.current.focus();
-    }, 100);
-    return count;
-  };
-
-  // Reload the backup scans
-  const handleReloadBackup = async () => {
-    try {
-      const scanRes = await fetch("/initial_scans.json");
-      const initIsbns = await scanRes.json();
-      const count = packingManager.importScans(initIsbns, (isbn) =>
-        searchEngine.getCopiesForIsbn(isbn),
-      );
-      setPackRevision((r) => r + 1);
-      return count;
-    } catch (e) {
-      return 0;
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="spinner" />
-        <div>
-          <div
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "20px",
-              fontWeight: 700,
-            }}
-          >
-            Building Sub-Millisecond Search Index...
-          </div>
-          <div
-            style={{
-              color: "var(--text-muted)",
-              fontSize: "13px",
-              marginTop: "6px",
-            }}
-          >
-            Indexing ~29,500 book titles in memory
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const muiTheme = useMemo(() => createTheme({
+    palette: { mode: 'dark', primary: { main: '#7d97f8' },
+      background: { default: '#121212', paper: '#1e1e1e' } },
+    typography: { fontFamily: 'Roboto, sans-serif', fontSize: 14, button: { fontWeight: 500 } },
+    shape: { borderRadius: 4 },
+    components: { MuiButton: { defaultProps: { size: 'small' } }, MuiTextField: { defaultProps: { size: 'small', variant: 'outlined' } }, MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } } }
+  }), []);
+  const coverEnabled = packingManager.coverMatchEnabled;
+  const vector = packingManager.coverVector;
+  const vectorAvailable = Boolean(vector?.enabled && (!vector.pilotStation || vector.pilotStation === packingManager.station));
+  const activeCoverMode = vectorAvailable ? coverMode : 'title';
+  const sections = [
+    ['scanning', 'Scanning', PackageCheck],
+    ...(coverEnabled || activeTab === 'cover' ? [['cover', 'Cover Match', PhotoCamera]] : []),
+    ['search', 'Title Search', SearchIcon],
+    ['progress', 'Progress', BarChart3],
+    ['scans', 'Scan Log', ListOrdered, packingManager.scanLog.length]
+  ];
 
   return (
-    <>
-      <div className="ambient-bg" />
-
-      <div className="app-container">
-        {/* Header */}
-        <header className="app-header">
-          <div className="brand-section">
-            <div className="brand-icon-wrapper">
-              <Zap size={24} />
-            </div>
-            <div>
-              <div className="brand-title">
-                FastSearch ISBN
-                <span className="badge">Sub-MS</span>
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Instant Title Search & Excel Packing Tool
-              </div>
-            </div>
-          </div>
-
-          <div className="header-controls">
-            {/* Sync Health Pill */}
-            <button
-              className={`sync-health-pill ${syncLock?.isLocked ? "out-of-sync" : "in-sync"}`}
-              onClick={
-                syncLock?.isLocked
-                  ? handleFetchFromSheet
-                  : () => setIsSyncModalOpen(true)
-              }
-              title={
-                syncLock?.isLocked
-                  ? "Click to Sync & Unlock System"
-                  : "Google Sheet in Sync (Click for Excel/Sheet Settings)"
-              }
-            >
-              {syncLock?.isLocked ? (
-                <>
-                  <Lock size={13} />
-                  <span>
-                    Out of Sync ({syncLock.diff > 0 ? `+${syncLock.diff}` : syncLock.diff})
-                  </span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={13} />
-                  <span>
-                    Synced ({packingManager.scanLog.length})
-                  </span>
-                </>
+    <ThemeProvider theme={muiTheme}>
+      <CssBaseline />
+      <Box className="app-shell">
+        <Drawer
+          variant="permanent"
+          className={`app-sidebar ${sidebarHovered ? 'is-expanded' : 'is-collapsed'}`}
+          onMouseEnter={() => setSidebarHovered(true)}
+          onMouseLeave={() => setSidebarHovered(false)}
+          sx={{
+            '& .MuiDrawer-paper': {
+              width: sidebarHovered ? 240 : 68,
+              p: sidebarHovered ? '20px 12px 14px' : '20px 10px 14px',
+              background: '#1a1a1a',
+              color: '#fff',
+              border: 0,
+              overflowX: 'hidden',
+              transition: 'width 0.2s ease, padding 0.2s ease',
+              zIndex: 1200,
+            }
+          }}
+        >
+          {sidebarHovered && <Typography sx={{ px: 1.25, mb: 3, fontWeight: 600, fontSize: 15, whiteSpace: 'nowrap' }}>FastSearch ISBN</Typography>}
+          <List component="nav" aria-label="Sections" disablePadding>
+            {sections.map(([id, label, Icon, count]) => <React.Fragment key={id}>
+              <ListItemButton
+                selected={activeTab === id}
+                onClick={() => setActiveTab(id)}
+                sx={{
+                  borderRadius: 1,
+                  minHeight: 44,
+                  mb: .25,
+                  px: sidebarHovered ? 2 : 0,
+                  justifyContent: sidebarHovered ? 'flex-start' : 'center',
+                  color: 'rgba(255,255,255,.7)',
+                  '&.Mui-selected': { background: 'rgba(109,139,246,.2)', color: '#b9c8ff' },
+                  '&.Mui-selected:hover': { background: 'rgba(109,139,246,.28)' }
+                }}
+              >
+                <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarHovered ? 40 : 'auto', justifyContent: 'center' }}><Icon size={20} /></ListItemIcon>
+                {sidebarHovered && <ListItemText primary={label} slotProps={{ primary: { fontSize: 14, fontWeight: 500, noWrap: true } }} />}
+                {sidebarHovered && count !== undefined && <Chip size="small" label={count} sx={{ height: 20, fontSize: 11, color: 'inherit', background: 'rgba(255,255,255,.12)' }} />}
+              </ListItemButton>
+              {id === 'cover' && sidebarHovered && (
+                <List component="div" disablePadding sx={{ pl: 3, mb: .5 }}>
+                  <ListItemButton
+                    selected={activeTab === 'cover' && activeCoverMode === 'vector'}
+                    disabled={!vectorAvailable}
+                    onClick={() => { setCoverMode('vector'); setActiveTab('cover'); }}
+                    sx={{
+                      borderRadius: 1, minHeight: 36, mb: .25, px: 1.5, color: 'rgba(255,255,255,.65)',
+                      '&.Mui-selected': { background: 'rgba(109,139,246,.16)', color: '#b9c8ff' },
+                      '&.Mui-selected:hover': { background: 'rgba(109,139,246,.24)' }
+                    }}
+                  >
+                    <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}><ImageSearch sx={{ fontSize: 18 }} /></ListItemIcon>
+                    <ListItemText primary="Vector" slotProps={{ primary: { fontSize: 13, fontWeight: 500, noWrap: true } }} />
+                  </ListItemButton>
+                  <ListItemButton
+                    selected={activeTab === 'cover' && activeCoverMode === 'title'}
+                    onClick={() => { setCoverMode('title'); setActiveTab('cover'); }}
+                    sx={{
+                      borderRadius: 1, minHeight: 36, mb: .25, px: 1.5, color: 'rgba(255,255,255,.65)',
+                      '&.Mui-selected': { background: 'rgba(109,139,246,.16)', color: '#b9c8ff' },
+                      '&.Mui-selected:hover': { background: 'rgba(109,139,246,.24)' }
+                    }}
+                  >
+                    <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}><TextFields sx={{ fontSize: 18 }} /></ListItemIcon>
+                    <ListItemText primary="Title" slotProps={{ primary: { fontSize: 13, fontWeight: 500, noWrap: true } }} />
+                  </ListItemButton>
+                </List>
               )}
-            </button>
-
-            <div
-              className="live-users-pill"
-              title="Live WebSocket Multi-User Synchronization Active across Wi-Fi network"
-            >
-              <span className="live-pulse-dot" />
-              <span>
-                {onlineUsers} {onlineUsers === 1 ? "Packer" : "Packers"} Live
-              </span>
-            </div>
-
-            <button
-              className="icon-btn"
-              onClick={() => setIsSyncModalOpen(true)}
-              title="Google Sheets & Excel Sync Settings"
-              style={{ gap: "6px" }}
-            >
-              <Share2 size={16} />
-              <span>Backup ({packingManager.scanLog.length})</span>
-            </button>
-
-            <button
-              className="icon-btn"
-              onClick={toggleAudio}
-              title={muted ? "Unmute Audio" : "Mute Audio"}
-            >
-              {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-            </button>
-
-            <button
-              className="icon-btn"
-              onClick={toggleTheme}
-              title={`Switch to ${theme === "dark" ? "Light" : "Dark"} mode`}
-            >
-              {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-            </button>
-          </div>
-        </header>
-
-        {/* Tab Navigation */}
-        <div className="nav-tabs">
-          <button
-            className={`tab-btn ${activeTab === "search" ? "active" : ""}`}
-            onClick={() => {
-              setActiveTab("search");
-              setTimeout(
-                () => inputRef.current && inputRef.current.focus(),
-                50,
-              );
-            }}
-          >
-            <SearchIcon size={16} /> Title Search
-          </button>
-          <button
-            className={`tab-btn ${activeTab === "review" ? "active" : ""}`}
-            onClick={() => setActiveTab("review")}
-          >
-            <ClipboardCheck size={16} /> For Review
-            <span className="tab-counter" style={{ background: "rgba(59, 130, 246, 0.2)", color: "var(--accent-blue)" }}>
-              29
-            </span>
-          </button>
-          <button
-            className={`tab-btn ${activeTab === "progress" ? "active" : ""}`}
-            onClick={() => setActiveTab("progress")}
-          >
-            <BarChart3 size={16} /> Progress Dashboard
-          </button>
-          <button
-            className={`tab-btn ${activeTab === "scans" ? "active" : ""}`}
-            onClick={() => setActiveTab("scans")}
-          >
-            <ListOrdered size={16} /> Scan Log
-            <span className="tab-counter">{packingManager.scanLog.length}</span>
-          </button>
-        </div>
+            </React.Fragment>)}
+          </List>
+          <Box sx={{ flex: 1 }} />
+          {sidebarHovered ? <>
+            <StationStatus manager={packingManager} onlineUsers={onlineUsers} />
+            <Button onClick={() => setIsSyncModalOpen(true)} startIcon={<Share2 size={16} />} sx={{ color: '#b9c8ff', mb: 1, whiteSpace: 'nowrap' }}>Storage & export</Button>
+            <Divider sx={{ borderColor: 'rgba(255,255,255,.12)', mb: 1 }} />
+            <label className="sidebar-switch"><Volume2 size={20} /><span>Scan sounds</span><Switch size="small" checked={!muted} onChange={toggleAudio} slotProps={{ input: { 'aria-label': 'Scan sounds' } }} /></label>
+          </> : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+              <IconButton onClick={() => setIsSyncModalOpen(true)} aria-label="Storage & export" sx={{ color: '#b9c8ff' }}>
+                <Share2 sx={{ fontSize: 20 }} />
+              </IconButton>
+              <IconButton onClick={toggleAudio} aria-label="Scan sounds" sx={{ color: 'rgba(255,255,255,.7)' }}>
+                {muted ? <VolumeOff sx={{ fontSize: 20 }} /> : <Volume2 sx={{ fontSize: 20 }} />}
+              </IconButton>
+            </Box>
+          )}
+        </Drawer>
+        <Box component="main" className={`app-content screen-${activeTab}`}>
+          {loading ? <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, minHeight: '60vh' }}><CircularProgress size={24} /><Typography>Loading book catalog…</Typography></Box> : <>
+        {activeTab === 'scanning' && <ScanningWorkspace onDemoToast={addToast} manager={packingManager} revision={packRevision}
+          onSearch={isbn => { setQuery(isbn); setActiveTab('search'); }} onCoverMatch={coverEnabled ? () => setActiveTab('cover') : undefined} onVoid={handleVoidScan} />}
+        {activeTab === 'cover' && <CoverMatch manager={packingManager} enabled={coverEnabled} mode={activeCoverMode} onModeChange={setCoverMode} />}
 
         {/* Tab 1: Search View */}
         {activeTab === "search" && (
@@ -628,7 +410,7 @@ export default function App() {
                           totalCopies={allCopies.length || 1}
                           onCopy={handleCopySuccess}
                           onMarkPacked={handleMarkPacked}
-                          isLocked={!!syncLock?.isLocked}
+                          isLocked={!packingManager.connected || !packingManager.ready || packingManager.busy || !!packingManager.pending}
                         />
                       );
                     })}
@@ -656,12 +438,12 @@ export default function App() {
                   Start typing to search titles instantly
                 </div>
                 <div className="empty-subtitle">
-                  Searches run in under 0.2 milliseconds with FlexSearch in-memory index.
+                  Search the local catalog by title or ISBN.
                 </div>
 
                 <div className="sample-queries">
                   {SAMPLE_QUERIES.map((sq) => (
-                    <button
+                    <Button
                       key={sq}
                       className="sample-chip"
                       onClick={() => {
@@ -670,7 +452,7 @@ export default function App() {
                       }}
                     >
                       "{sq}"
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -685,19 +467,6 @@ export default function App() {
               onReCopy={handleCopySuccess}
             />
           </>
-        )}
-
-        {/* Tab: For Review */}
-        {activeTab === "review" && (
-          <ReviewTab
-            searchEngine={searchEngine}
-            packingManager={packingManager}
-            onMarkPacked={handleMarkPacked}
-            onCopy={handleCopySuccess}
-            isLocked={!!syncLock?.isLocked}
-            packRevision={packRevision}
-            orders={stats.orders}
-          />
         )}
 
         {/* Tab 2: Progress Dashboard */}
@@ -715,12 +484,10 @@ export default function App() {
         {/* Tab 3: Scan Log */}
         {activeTab === "scans" && (
           <ScanLogView
+            stationNames={packingManager.stationNames}
             scanLog={packingManager.scanLog}
-            onClear={() => {
-              packingManager.clearLogs();
-              setPackRevision((r) => r + 1);
-            }}
             onExportExcel={() => packingManager.exportExcel(stats.orderTotals)}
+            onVoidScan={handleVoidScan}
           />
         )}
 
@@ -729,17 +496,12 @@ export default function App() {
           isOpen={isSyncModalOpen}
           onClose={() => setIsSyncModalOpen(false)}
           onExportExcel={() => packingManager.exportExcel(stats.orderTotals)}
-          onFetchFromSheet={handleFetchFromSheet}
-          onImportExcelFile={(file) =>
-            packingManager.importExcelFile(file, (isbn) =>
-              searchEngine.getCopiesForIsbn(isbn),
-            )
-          }
-          onImportPastedIsbns={handleImportPasted}
-          onReloadBackup={handleReloadBackup}
+          manager={packingManager}
           totalScans={packingManager.scanLog.length}
         />
-      </div>
+          </>}
+        </Box>
+      </Box>
 
       {/* Floating Real-Time Packing Toast Notifications */}
       <div className="toast-stack-container">
@@ -762,18 +524,17 @@ export default function App() {
                 )}
                 <span className="pack-toast-badge">
                   {toast.isWarning
-                    ? "⛔ Already Packed"
+                    ? "Attention"
                     : toast.isRemote
                       ? "⚡ Live Sync"
                       : "✓ Packed"}
                 </span>
                 <span className="pack-toast-time">{toast.time}</span>
               </div>
-              <div className="pack-toast-title" title={toast.title}>
-                {toast.title}
-              </div>
+              <div className="pack-toast-title" style={{ color: 'var(--accent-blue)' }}>{toast.stationName || (toast.station && packingManager.getStationLabel(toast.station))}</div>
+              <div className="pack-toast-title" title={toast.title}>{toast.title}</div><div className="pack-toast-title">{toast.status}</div>
             </div>
-            <button
+            <Button
               className="pack-toast-close"
               onClick={() =>
                 setToasts((prev) => prev.filter((t) => t.id !== toast.id))
@@ -781,10 +542,10 @@ export default function App() {
               title="Dismiss"
             >
               <X size={13} />
-            </button>
+            </Button>
           </div>
         ))}
       </div>
-    </>
+    </ThemeProvider>
   );
 }

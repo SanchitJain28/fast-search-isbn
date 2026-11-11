@@ -1,0 +1,7 @@
+# Replace this hostname with the chosen domain after its DNS points to the VPS.
+scanner.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:3000 {
+        flush_interval -1
+    }
+}

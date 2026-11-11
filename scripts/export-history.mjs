@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { google } from 'googleapis';
+import XLSX from 'xlsx';
+const root = fileURLToPath(new URL('../', import.meta.url));
+if (fs.existsSync(path.join(root, '.env.local'))) process.loadEnvFile(path.join(root, '.env.local'));
+if (!process.env.SHEETS_SPREADSHEET_ID) throw new Error('Set SHEETS_SPREADSHEET_ID for the source packing workbook');
+const auth = new google.auth.GoogleAuth({ keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(root, 'credentials.json'), scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'] });
+const sheets = google.sheets({version:'v4',auth});
+const result = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.SHEETS_SPREADSHEET_ID, range: 'Scan!A4:D' }, { timeout: 20000 });
+const rows = (result.data.values || []).filter(row => String(row[0] || '').trim()).map(row => [row[0] || '', row[1] || '', row[2] || '', row[3] || '']);
+const output = path.resolve(process.argv[2] || path.join(root, 'data/live-sheet-export.csv'));
+fs.mkdirSync(path.dirname(output), {recursive:true});
+fs.writeFileSync(output, XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet([['ISBN13','Order','Title','Status'], ...rows])));
+fs.writeFileSync(`${output}.snapshot.json`, JSON.stringify({ fetchedAt:new Date().toISOString(), rows:rows.length, blankResults:rows.filter(row=>!String(row[3]).trim()).length },null,2));
+console.log(`Exported ${rows.length} historical attempts to ${output}. Source sheet unchanged.`);

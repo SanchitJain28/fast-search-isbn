@@ -1,95 +1,10 @@
 import React from 'react';
-import { CheckCircle2, AlertTriangle, HelpCircle, Package, ArrowRight, FileSpreadsheet } from 'lucide-react';
-
+import { Paper, Typography, Button, LinearProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { FileSpreadsheet } from 'lucide-react';
 export default function ProgressDashboard({ progress, onExportExcel, onSelectOrder }) {
   if (!progress) return null;
-
   const { orders = [], totalScanned, totalPacked, duplicates, notFound } = progress;
-
-  return (
-    <div className="progress-dashboard">
-      {/* Top Metric Cards */}
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.15)', color: 'var(--accent-blue)' }}>
-            <Package size={20} />
-          </div>
-          <div>
-            <div className="kpi-value">{totalPacked.toLocaleString()}</div>
-            <div className="kpi-label">Books Packed</div>
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-icon-wrapper" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)' }}>
-            <CheckCircle2 size={20} />
-          </div>
-          <div>
-            <div className="kpi-value">{totalScanned.toLocaleString()}</div>
-            <div className="kpi-label">Total Scans</div>
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-icon-wrapper" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)' }}>
-            <AlertTriangle size={20} />
-          </div>
-          <div>
-            <div className="kpi-value">{duplicates.toLocaleString()}</div>
-            <div className="kpi-label">Duplicates Caught</div>
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-icon-wrapper" style={{ background: 'rgba(244, 63, 94, 0.15)', color: 'var(--accent-rose)' }}>
-            <HelpCircle size={20} />
-          </div>
-          <div>
-            <div className="kpi-value">{notFound.toLocaleString()}</div>
-            <div className="kpi-label">Not Found</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Orders Table & Progress Bars */}
-      <div className="orders-table-wrapper">
-        <div className="table-header-row">
-          <div style={{ fontWeight: 700, fontSize: '15px' }}>Order Packing Status (Box-wise)</div>
-          <button className="icon-btn" onClick={onExportExcel} title="Export to Excel" style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', gap: '6px' }}>
-            <FileSpreadsheet size={15} /> Export .xlsx
-          </button>
-        </div>
-
-        <div className="orders-list">
-          {orders.map((o) => (
-            <div key={o.order} className="order-progress-row">
-              <div className="order-progress-info">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className={`order-badge order-${o.order.toLowerCase()}`}>
-                    Order {o.order}
-                  </span>
-                  <span style={{ fontSize: '13px', fontWeight: 600 }}>
-                    {o.packed} / {o.total} packed
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {o.remaining} remaining ({o.pct}%)
-                </div>
-              </div>
-
-              <div className="progress-bar-bg">
-                <div
-                  className="progress-bar-fill"
-                  style={{
-                    width: `${o.pct}%`,
-                    background: o.pct >= 100 ? 'var(--accent-emerald)' : 'var(--accent-blue)'
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="progress-dashboard"><div className="kpi-grid">{[['Books packed', totalPacked], ['Total scans', totalScanned], ['Duplicates caught', duplicates, 'warning.main'], ['Not found', notFound, 'error.main']].map(([label, value, color]) => <Paper key={label} sx={{ p: 2 }}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h4" sx={{ mt: .5, color }}>{value.toLocaleString()}</Typography></Paper>)}</div>
+    <Paper><div className="table-header-row"><Typography sx={{ fontWeight: 500 }}>Order packing status</Typography><Button variant="outlined" startIcon={<FileSpreadsheet size={16} />} onClick={onExportExcel}>Export Excel</Button></div><TableContainer><Table size="small" aria-label="Order packing progress"><TableHead><TableRow>{['Order', 'Packed', 'Remaining', 'Progress'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{orders.map(o => <TableRow key={o.order} hover><TableCell><Button onClick={() => onSelectOrder(o.order)}>{o.order}</Button></TableCell><TableCell>{o.packed} / {o.total}</TableCell><TableCell>{o.remaining}</TableCell><TableCell sx={{ minWidth: 160 }}><Typography variant="caption">{o.pct}%</Typography><LinearProgress variant="determinate" value={Math.max(0, Math.min(100, o.pct))} color={o.pct >= 100 ? 'success' : 'primary'} aria-label={`Order ${o.order} packed`} sx={{ height: 4, borderRadius: 1, mb: 1 }} /></TableCell></TableRow>)}</TableBody></Table></TableContainer></Paper>
+  </div>;
 }

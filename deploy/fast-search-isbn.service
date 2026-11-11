@@ -1,0 +1,28 @@
+[Unit]
+Description=Central book packing server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bookscanner
+Group=bookscanner
+WorkingDirectory=/opt/fast-search-isbn/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=PACKING_DB=/var/lib/fast-search-isbn/packing.sqlite
+EnvironmentFile=/etc/fast-search-isbn.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fast-search-isbn
+
+[Install]
+WantedBy=multi-user.target

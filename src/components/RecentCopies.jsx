@@ -1,3 +1,4 @@
+import { Button } from '@mui/material';
 import React from 'react';
 import { History, Copy, Trash2 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
@@ -12,14 +13,14 @@ export default function RecentCopies({ history = [], onClear, onReCopy }) {
           <History size={16} style={{ color: 'var(--accent-blue)' }} />
           <span>Recent Copies ({history.length})</span>
         </div>
-        <button
+        <Button variant="outlined"
           className="icon-btn"
           onClick={onClear}
           title="Clear copy history"
           style={{ width: '28px', height: '28px' }}
         >
           <Trash2 size={14} />
-        </button>
+        </Button>
       </div>
 
       <div className="recent-items-list">
@@ -38,7 +39,7 @@ export default function RecentCopies({ history = [], onClear, onReCopy }) {
               </div>
             </div>
 
-            <button
+            <Button variant="outlined"
               className="copy-isbn-btn"
               style={{ padding: '4px 10px', fontSize: '12px' }}
               onClick={() => {
@@ -49,7 +50,7 @@ export default function RecentCopies({ history = [], onClear, onReCopy }) {
               title="Copy again"
             >
               <Copy size={13} /> Copy
-            </button>
+            </Button>
           </div>
         ))}
       </div>

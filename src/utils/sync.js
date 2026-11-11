@@ -1,388 +1,318 @@
 import * as XLSX from 'xlsx';
 
+function requestId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return `scan-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 export class PackingManager {
-  constructor() {
-    this.packedCounts = new Map();
-    this.scanLog = [];
-    this.lastLocalScanTime = 0;
-    this.connectedUsers = 1;
-    this.listeners = new Set();
-    this.eventSource = null;
-    this.load();
+  constructor(options = {}) {
+    this.storage = options.storage || globalThis.localStorage;
+    this.fetch = options.fetch || ((...args) => globalThis.fetch(...args));
+    this.EventSource = options.EventSource || globalThis.EventSource;
+    this.autoRecovery = options.autoRecovery ?? (typeof window !== 'undefined');
+    this.setTimeout = options.setTimeout || ((...args) => globalThis.setTimeout(...args));
+    this.clearTimeout = options.clearTimeout || (timer => globalThis.clearTimeout(timer));
+    this.now = options.now || Date.now;
+    this.recoveryAttempts = 0;
+    this.events = options.events || (typeof window !== 'undefined' ? window : null);
+    this.onOnline = () => { void this.health(); this.scheduleRecovery(0, true); };
+    this.events?.addEventListener('online', this.onOnline);
+    this.scanLog = []; this.packedCounts = new Map(); this.listeners = new Set();
+    this.stationNames = {};
+    this.connectedUsers = 0; this.connected = false; this.ready = false; this.mirror = {};
+    this.station = this.storage.getItem('fast_search_station') || `Station-${requestId().slice(-6)}`;
+    this.storage.setItem('fast_search_station', this.station);
+    try { this.pending = JSON.parse(this.storage.getItem('fast_search_pending_request') || 'null'); } catch { this.pending = null; }
+    this.busy = false;
     this.initRealtimeSync();
+    if (this.pending) this.scheduleRecovery(0);
   }
-
-  load() {
-    try {
-      const savedLogs = localStorage.getItem('fast_search_scans');
-      if (savedLogs) {
-        this.scanLog = JSON.parse(savedLogs);
-        this.rebuildPackedCounts();
-      }
-    } catch (e) {
-      console.warn('Failed to load packing storage:', e);
-    }
-  }
-
-  rebuildPackedCounts() {
-    this.packedCounts.clear();
-    for (const scan of this.scanLog) {
-      if (scan.statusType === 'PACK') {
-        const cur = this.packedCounts.get(scan.isbn) || 0;
-        this.packedCounts.set(scan.isbn, cur + 1);
-      }
-    }
-  }
-
-  save() {
-    try {
-      localStorage.setItem('fast_search_scans', JSON.stringify(this.scanLog));
-    } catch (e) {
-      console.warn('Failed to save packing storage:', e);
-    }
-  }
-
-  // Subscribe to real-time events (incoming scans from other packers, user count changes)
-  subscribe(callback) {
-    this.listeners.add(callback);
-    return () => this.listeners.delete(callback);
-  }
-
+  subscribe(callback) { this.listeners.add(callback); return () => this.listeners.delete(callback); }
   notifyListeners(type, data) {
     for (const listener of this.listeners) {
-      try {
-        listener(type, data);
-      } catch (e) {
-        console.error('Listener error:', e);
-      }
+      try { listener(type, data); } catch (error) { console.error('Scanner listener failed:', error); }
     }
   }
-
-  // Real-time EventSource (SSE) connection to local central pool
-  initRealtimeSync() {
-    if (typeof window === 'undefined') return;
-
-    try {
-      if (this.eventSource) {
-        this.eventSource.close();
-      }
-
-      this.eventSource = new EventSource('/api/events');
-
-      this.eventSource.onopen = () => {
-        console.log('⚡ [Realtime Pool] Connected to Central Live Hub');
-      };
-
-      this.eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'USER_COUNT') {
-            this.connectedUsers = data.count || 1;
-            this.notifyListeners('USER_COUNT', this.connectedUsers);
-          } else if (data.type === 'BOOK_PACKED' && data.scan) {
-            const incoming = data.scan;
-            // Check if we already have this scan registered locally
-            const exists = this.scanLog.some(s => s.id === incoming.id);
-            if (!exists) {
-              this.scanLog.unshift(incoming);
-              if (incoming.statusType === 'PACK') {
-                const cur = this.packedCounts.get(incoming.isbn) || 0;
-                this.packedCounts.set(incoming.isbn, cur + 1);
-              }
-              this.lastLocalScanTime = Date.now();
-              this.save();
-              console.log(`📡 [Realtime Broadcast] Remote pack received: ${incoming.isbn} (${incoming.title})`);
-              this.notifyListeners('BOOK_PACKED', incoming);
-            }
-          } else if (data.type === 'SCANS_CLEARED') {
-            this.scanLog = [];
-            this.packedCounts.clear();
-            this.save();
-            this.notifyListeners('SCANS_CLEARED');
-          }
-        } catch (e) {
-          console.warn('Realtime message parse error:', e);
-        }
-      };
-
-      this.eventSource.onerror = (err) => {
-        // EventSource will automatically reconnect in background
-      };
-    } catch (e) {
-      console.warn('Realtime connection error:', e);
-    }
+  recordContact() {
+    this.lastServerContactAt = this.now(); this.healthFailures = 0; this.connected = true;
   }
-
-  // Sync initial state from central server on page load
-  async syncInitialStateFromServer(lookupCandidatesFn) {
-    try {
-      const res = await fetch('/api/state');
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.userCount === 'number') {
-          this.connectedUsers = Math.max(1, data.userCount);
-          this.notifyListeners('USER_COUNT', this.connectedUsers);
-        }
-        if (Array.isArray(data.isbns) && data.isbns.length > 0) {
-          if (this.scanLog.length < data.isbns.length) {
-            this.importScans(data.isbns, lookupCandidatesFn);
-            console.log(`⚡ [Initial Sync] Synced ${data.isbns.length} master scans from central pool.`);
-            return data.isbns.length;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to sync initial state from central server:', e);
+  scheduleRecovery(delay = Math.min(15000, 2000 * 2 ** Math.min(this.recoveryAttempts, 3)), urgent = false) {
+    if (!this.autoRecovery || !this.pending || this.disposed) return;
+    if (this.recoveryTimer != null) {
+      if (!urgent) return;
+      this.clearTimeout(this.recoveryTimer);
     }
-    return 0;
-  }
-
-  getPackedCount(isbn) {
-    return this.packedCounts.get(String(isbn).trim()) || 0;
-  }
-
-  // Pack a single book
-  markPacked(isbn, candidateRecords = [], skipWebhook = false) {
-    const cleanIsbn = String(isbn || '').trim();
-    if (!cleanIsbn) return { error: 'Empty ISBN' };
-
-    const totalCopies = candidateRecords.length;
-    const currentPacked = this.getPackedCount(cleanIsbn);
-
-    let statusText = '';
-    let statusType = 'PACK';
-    let targetOrder = '';
-    let targetTitle = '';
-
-    if (totalCopies === 0) {
-      statusType = 'NOT_FOUND';
-      statusText = '❌ NOT FOUND — search by name';
-    } else if (currentPacked >= totalCopies) {
-      statusType = 'DUPLICATE';
-      statusText = `⛔ DUPLICATE (${currentPacked}/${totalCopies} packed) — set aside`;
-      targetOrder = candidateRecords[0]?.Order || '—';
-      targetTitle = candidateRecords[0]?.Title || '';
-
-      const dupLogEntry = {
-        id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-        isbn: cleanIsbn,
-        order: targetOrder,
-        title: targetTitle,
-        status: statusText,
-        statusType: 'DUPLICATE',
-        copyNum: currentPacked,
-        totalCopies: totalCopies,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      };
-
-      // When importing existing historical scans from Google Sheet, keep it in scanLog
-      if (skipWebhook) {
-        this.scanLog.unshift(dupLogEntry);
-        this.save();
-      }
-
-      return dupLogEntry;
-    } else {
-      const targetItem = candidateRecords[currentPacked];
-      const nextCopy = currentPacked + 1;
-      targetOrder = targetItem.Order;
-      targetTitle = targetItem.Title;
-      statusType = 'PACK';
-
-      if (totalCopies > 1) {
-        statusText = `✅ PACK — Order ${targetOrder} (copy ${nextCopy} of ${totalCopies})`;
-      } else {
-        statusText = `✅ PACK — Order ${targetOrder}`;
-      }
-
-      this.packedCounts.set(cleanIsbn, currentPacked + 1);
-    }
-
-    const logEntry = {
-      id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      isbn: cleanIsbn,
-      order: targetOrder,
-      title: targetTitle,
-      status: statusText,
-      statusType: statusType,
-      copyNum: currentPacked + 1,
-      totalCopies: totalCopies,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    };
-
-    this.scanLog.unshift(logEntry);
-    this.lastLocalScanTime = Date.now();
-    this.save();
-
-    // Send to central server (only valid PACK scans)
-    if (!skipWebhook && statusType === 'PACK') {
-      this.sendToLocalApi(logEntry);
-    }
-
-    return logEntry;
-  }
-
-  // Bulk import existing scans (Ultra-fast batch processing in < 5ms)
-  importScans(isbnList = [], lookupCandidatesFn) {
-    this.scanLog = [];
-    this.packedCounts.clear();
-    let importedCount = 0;
-    const newLogs = [];
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    for (let i = 0; i < isbnList.length; i++) {
-      const raw = String(isbnList[i] || '').replace(/^'/, '').trim();
-      const cleanIsbn = raw.replace(/[^0-9Xx]/g, '') || raw;
-      if (!cleanIsbn) continue;
-
-      const candidateRecords = lookupCandidatesFn ? lookupCandidatesFn(cleanIsbn) : [];
-      const totalCopies = candidateRecords.length;
-      const currentPacked = this.packedCounts.get(cleanIsbn) || 0;
-
-      let statusText = '';
-      let statusType = 'PACK';
-      let targetOrder = '';
-      let targetTitle = '';
-
-      if (totalCopies === 0) {
-        statusType = 'NOT_FOUND';
-        statusText = '❌ NOT FOUND — search by name';
-      } else if (currentPacked >= totalCopies) {
-        statusType = 'DUPLICATE';
-        statusText = `⛔ DUPLICATE (${currentPacked}/${totalCopies} packed) — set aside`;
-        targetOrder = candidateRecords[0]?.Order || '—';
-        targetTitle = candidateRecords[0]?.Title || '';
-      } else {
-        const targetItem = candidateRecords[currentPacked];
-        const nextCopy = currentPacked + 1;
-        targetOrder = targetItem?.Order || '—';
-        targetTitle = targetItem?.Title || '';
-        statusType = 'PACK';
-        importedCount++;
-
-        if (totalCopies > 1) {
-          statusText = `✅ PACK — Order ${targetOrder} (copy ${nextCopy} of ${totalCopies})`;
-        } else {
-          statusText = `✅ PACK — Order ${targetOrder}`;
-        }
-
-        this.packedCounts.set(cleanIsbn, currentPacked + 1);
-      }
-
-      newLogs.push({
-        id: `import_${i}_${Date.now()}`,
-        isbn: cleanIsbn,
-        order: targetOrder,
-        title: targetTitle,
-        status: statusText,
-        statusType: statusType,
-        copyNum: currentPacked + 1,
-        totalCopies: totalCopies,
-        timestamp: nowTime
+    this.recoveryTimer = this.setTimeout(() => {
+      this.recoveryTimer = null;
+      void this.recoverPending().catch(error => {
+        this.recoveryError = error.message; this.notifyListeners('HEALTH');
+      }).finally(() => {
+        this.recoveryAttempts++;
+        this.scheduleRecovery();
       });
-    }
-
-    // Newest first in scanLog
-    this.scanLog = newLogs.reverse();
-    this.lastLocalScanTime = Date.now();
-    this.save(); // Save ONCE for the entire batch
-
-    // Save to central server storage in background
-    try {
-      fetch('/api/bulk-save-scans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scans: this.scanLog })
-      }).catch(() => {});
-    } catch (e) {}
-
-    return importedCount;
+    }, delay);
+    this.recoveryTimer?.unref?.();
   }
-
-  // Directly import an Excel workbook (.xlsx, .xls, .csv) with zero server latency
-  async importExcelFile(file, lookupCandidatesFn) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-
-          // Find 'Scan' sheet or fallback to the first sheet
-          const sheetName =
-            workbook.SheetNames.find((n) => n.toLowerCase().includes('scan')) ||
-            workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-          const isbns = [];
-          for (let i = 0; i < jsonRows.length; i++) {
-            const row = jsonRows[i];
-            if (row && row[0]) {
-              const val = String(row[0]).replace(/^'/, '').trim();
-              if (val && !val.toLowerCase().startsWith('isbn') && !val.toLowerCase().startsWith('order')) {
-                isbns.push(val);
-              }
-            }
-          }
-
-          const count = this.importScans(isbns, lookupCandidatesFn);
-          resolve({ count, sheetName, totalRows: isbns.length });
-        } catch (err) {
-          reject(err);
+  dispose() {
+    this.disposed = true;
+    if (this.recoveryTimer != null) this.clearTimeout(this.recoveryTimer);
+    this.events?.removeEventListener('online', this.onOnline);
+    this.eventSource?.close?.();
+    this.pendingController?.abort();
+  }
+  rebuildPackedCounts() {
+    this.packedCounts.clear();
+    for (const scan of this.scanLog) if (scan.statusType === 'PACK') this.packedCounts.set(scan.isbn, (this.packedCounts.get(scan.isbn) || 0) + 1);
+  }
+  addScan(scan) {
+    this.recordContact();
+    this.confirmPending(scan);
+    if (this.scanLog.some(s => s.id === scan.id)) return false;
+    this.scanLog.push(scan); this.scanLog.sort((a, b) => b.seq - a.seq); this.rebuildPackedCounts(); return true;
+  }
+  updateScan(scan) {
+    const idx = this.scanLog.findIndex(s => s.id === scan.id);
+    if (idx !== -1) {
+      if ((this.scanLog[idx].revision || 0) > (scan.revision || 0)) return;
+      this.scanLog[idx] = scan;
+    } else {
+      this.scanLog.push(scan);
+      this.scanLog.sort((a, b) => b.seq - a.seq);
+    }
+    this.rebuildPackedCounts();
+    this.notifyListeners('STATE');
+  }
+  refresh() {
+    // Focus, startup and SSE reconnect can arrive together. Share one download.
+    if (!this.refreshPromise) this.refreshPromise = this.loadState().finally(() => { this.refreshPromise = null; });
+    return this.refreshPromise;
+  }
+  async loadState() {
+    const beforeIds = new Set(this.scanLog.map(scan => scan.id));
+    const res = await this.fetch('/api/state', { signal: AbortSignal.timeout(60000) });
+    if (!res.ok) throw new Error('Cannot read central packing history');
+    const state = await res.json();
+    const combined = new Map(state.scans.map(scan => [scan.id, scan]));
+    for (const scan of this.scanLog) {
+      const remote = combined.get(scan.id);
+      if (!beforeIds.has(scan.id) || (scan.revision || 0) > (remote?.revision || 0)) combined.set(scan.id, scan);
+    }
+    this.stationNames = state.stationNames || {};
+    this.editableFromSeq = state.editableFromSeq || 1;
+    this.scanLog = [...combined.values()].sort((a, b) => b.seq - a.seq);
+    this.rebuildPackedCounts(); this.updateHealth(state);
+    const confirmed = this.pending && this.scanLog.find(scan => scan.id === this.pending.id);
+    if (confirmed) this.confirmPending(confirmed);
+    this.notifyListeners('STATE'); return state;
+  }
+  updateHealth(state) {
+    this.healthVersion = (this.healthVersion || 0) + 1;
+    this.ready = state.ready; this.mirror = state.mirror; this.connectedUsers = state.userCount;
+    this.coverMatchEnabled = state.coverMatchEnabled === true;
+    this.coverVector = state.coverVector;
+    this.recordContact();
+    this.notifyListeners('HEALTH');
+    if (this.pending && this.ready && !this.busy && this.now() >= (this.nextRecoveryAt || 0)) {
+      if (this.autoRecovery) this.scheduleRecovery(0);
+      else queueMicrotask(() => { void this.recoverPending().catch(() => {}); });
+    }
+  }
+  confirmPending(scan) {
+    if (!this.pending || scan.id !== this.pending.id) return false;
+    this.pending = null;
+    if (this.recoveryTimer != null) this.clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null; this.recoveryAttempts = 0; this.recoveryError = '';
+    this.storage.removeItem('fast_search_pending_request');
+    this.lastConfirmed = scan;
+    this.notifyListeners('SCAN_CONFIRMED', scan);
+    return true;
+  }
+  recoverPending() {
+    if (this.recoveryPromise) return this.recoveryPromise;
+    if (!this.pending || this.disposed) return Promise.resolve();
+    const request = { ...this.pending };
+    this.nextRecoveryAt = this.now() + 5000;
+    this.recoveryPromise = (async () => {
+      // Probe by ID even during an in-flight POST. This confirms a saved scan
+      // promptly when both the POST reply and live-feed confirmation were lost.
+      try {
+        const res = await this.fetch(`/api/scan?id=${encodeURIComponent(request.id)}`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw Error('Cannot check saved scan');
+        const { scan } = await res.json();
+        if (scan) {
+          if (scan.id !== request.id) throw Error('Server returned a different scan request');
+          this.addScan(scan); this.notifyListeners('STATE'); return scan;
         }
-      };
-      reader.onerror = (err) => reject(err);
-      reader.readAsArrayBuffer(file);
+      } catch (error) {
+        if (this.pendingPromise || this.busy || this.pending?.id !== request.id) throw error;
+        // Re-sending the original ID is safe if the lookup route is unavailable.
+      }
+      return null;
+    })().finally(() => { this.recoveryPromise = null; });
+    // Track only the lookup above, so another background lookup can confirm a
+    // retried POST whose response stalls. Never launch concurrent scan POSTs.
+    return this.recoveryPromise.then(scan => {
+      if (scan) return scan;
+      if (this.pending?.id === request.id && !this.pendingPromise && !this.busy) return this.retryPending();
     });
   }
 
-  // Fetch all scans directly from Google Sheets API v4 in < 1 second!
-  async fetchFromGoogleSheet(lookupCandidatesFn) {
+  health() {
+    if (!this.healthPromise) this.healthPromise = this.checkHealth().finally(() => { this.healthPromise = null; });
+    return this.healthPromise;
+  }
+  async checkHealth() {
+    const version = this.healthVersion || 0;
     try {
-      const res = await fetch('/api/sheets/fetch-all');
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: 'Server error' }));
-        throw new Error(errorData.error || `HTTP ${res.status}`);
+      const res = await this.fetch('/api/health', { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error('Server unavailable');
+      this.updateHealth(await res.json());
+    } catch {
+      // A delayed failed probe must not override a newer live heartbeat.
+      if ((this.healthVersion || 0) === version) {
+        this.healthFailures = (this.healthFailures || 0) + 1;
+        const stale = this.lastServerContactAt == null || this.now() - this.lastServerContactAt > 15000;
+        if (!this.autoRecovery || (stale && this.healthFailures >= 2)) this.connected = false;
+        this.notifyListeners('HEALTH');
       }
-      const data = await res.json();
-      if (!data.isbns || !Array.isArray(data.isbns)) {
-        throw new Error('Invalid response from Google Sheets API');
-      }
-      const count = this.importScans(data.isbns, lookupCandidatesFn);
-      console.log(`⚡ [Google Sheets API v4] Successfully imported ${count} packed books (${data.isbns.length} total rows) in ${data.timeMs || 0}ms.`);
-      return count;
-    } catch (err) {
-      console.error('Fetch from Google Sheets error:', err);
-      throw err;
     }
   }
-
-  // Real-time Local Node API endpoint (Saves in 0.1ms & Broadcasts in <5ms)
-  async sendToLocalApi(logEntry) {
+  initRealtimeSync() {
+    this.eventSource = new this.EventSource('/api/events');
+    this.eventSource.onopen = () => { void this.health(); this.refresh().catch(() => this.health()); };
+    // EventSource reconnects itself. Check the API before blocking the scanner.
+    this.eventSource.onerror = () => { void this.health(); this.scheduleRecovery(); };
+    this.eventSource.onmessage = event => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'STATION_NAMES') { this.stationNames = data.stationNames; this.notifyListeners('HEALTH'); }
+      if (data.type === 'USER_COUNT') { this.connectedUsers = data.count; this.notifyListeners('USER_COUNT', data.count); }
+      if (data.type === 'HEALTH') {
+        if (typeof data.ready === 'boolean') this.updateHealth(data); else void this.health();
+      }
+      if (data.type === 'BOOK_PACKED' && this.addScan(data.scan)) this.notifyListeners('BOOK_PACKED', data.scan);
+      if (data.type === 'BOOK_EDITED' && data.scan) { this.updateScan(data.scan); this.notifyListeners('BOOK_EDITED', data.scan); }
+      if (data.type === 'BOOK_VOIDED' && data.scan) { this.updateScan(data.scan); this.notifyListeners('BOOK_VOIDED', data.scan); }
+    };
+  }
+  getStationLabel(station) { return this.stationNames?.[station] || station; }
+  async updateStationName(name) {
+    const res = await this.fetch('/api/station-name', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ station: this.station, name }), signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save station name');
+    this.stationNames = data.stationNames;
+    this.notifyListeners('HEALTH');
+  }
+  getPackedCount(isbn) { return this.packedCounts.get(String(isbn).trim()) || 0; }
+  async editScan(scan, isbn) {
+    if (this.pending || this.busy) throw new Error('Confirm the pending scan before editing a row.');
+    const key = JSON.stringify([scan.id, String(isbn).trim(), scan.revision || 0]);
+    // Retain the same edit ID after a timeout so a retry cannot apply the edit twice.
+    if (this.editAttempt?.key !== key) this.editAttempt = { key, body: { id: scan.id, isbn, expectedRevision: scan.revision || 0, editId: requestId() } };
+    this.busy = true; this.notifyListeners('HEALTH');
     try {
-      await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: logEntry.id,
-          isbn: logEntry.isbn,
-          order: logEntry.order,
-          title: logEntry.title,
-          status: logEntry.status,
-          statusType: logEntry.statusType,
-          copyNum: logEntry.copyNum,
-          totalCopies: logEntry.totalCopies,
-          timestamp: logEntry.timestamp
-        })
+      const response = await this.fetch('/api/scan/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.editAttempt.body), signal: AbortSignal.timeout(8000) });
+      const entry = await response.json();
+      if (!response.ok) {
+        if (response.status < 500) this.editAttempt = null;
+        if (response.status === 409) await this.refresh();
+        throw new Error(entry.error || 'Could not save correction');
+      }
+      this.updateScan(entry); this.editAttempt = null;
+      return entry;
+    } catch (error) {
+      if (this.editAttempt) throw new Error('Correction unconfirmed. Retry saving this same value to confirm it.');
+      throw error;
+    } finally { this.busy = false; this.notifyListeners('HEALTH'); }
+  }
+  async voidScan(id) {
+    const res = await this.fetch('/api/scan/void', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, station: this.station }),
+      signal: AbortSignal.timeout(8000)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server could not void scan');
+    this.updateScan(data);
+    return data;
+  }
+  markPacked(isbn) { return this.submitPack({ isbn }); }
+  async confirmCover({ isbn, order, confirmationToken }, catalogVersion) {
+    if (!confirmationToken) throw new Error('Look up an eligible copy before confirming the box.');
+    return this.submitPack({ isbn, order, catalogVersion, confirmationToken });
+  }
+  async submitPack(selection) {
+    if (this.busy && !this.pending) throw new Error('A scan is already being saved.');
+    if (this.pending) throw new Error('Resolve the pending scan in the Scanning tab before scanning another book.');
+    this.recoveryAttempts = 0; this.recoveryError = '';
+    this.pending = { id: requestId(), ...selection, station: this.station };
+    try { this.storage.setItem('fast_search_pending_request', JSON.stringify(this.pending)); }
+    catch { this.pending = null; throw new Error('Browser storage unavailable. Enable it before scanning.'); }
+    return this.retryPending();
+  }
+  retryPending() {
+    if (this.pendingPromise) return this.pendingPromise;
+    this.pendingPromise = this.savePending().finally(() => { this.pendingPromise = null; });
+    return this.pendingPromise;
+  }
+  async savePending() {
+    if (this.busy || !this.pending) throw new Error('A scan is already being saved.');
+    this.busy = true; this.notifyListeners('HEALTH');
+    const request = { ...this.pending };
+    this.scheduleRecovery(2000);
+    const controller = new AbortController();
+    this.pendingController = controller;
+    let unsubscribe;
+    const confirmation = new Promise(resolve => {
+      unsubscribe = this.subscribe((type, scan) => {
+        if (type === 'SCAN_CONFIRMED' && scan.id === request.id) resolve(scan);
       });
-      console.log('⚡ Scan saved to central storage & broadcasted:', logEntry.isbn);
-    } catch (e) {
-      console.warn('Local API error:', e);
-    }
+    });
+    try {
+      const data = await Promise.race([this.sendPending(request, controller.signal), confirmation]);
+      if (data.id !== request.id) throw Error('Server returned a different scan request');
+      this.addScan(data);
+      this.connected = true; this.notifyListeners('STATE'); return data;
+    } catch (error) {
+      if (this.pending?.id === request.id) {
+        this.nextRecoveryAt = this.now() + 5000;
+        throw new Error('Result unconfirmed. Recovery will retry automatically; keep this book aside.');
+      }
+      throw error;
+    } finally { controller.abort(); this.pendingController = null; unsubscribe(); this.busy = false; this.notifyListeners('HEALTH'); this.scheduleRecovery(); }
   }
-
+  async sendPending(request, signal) {
+      const body = JSON.stringify(request);
+      const route = request.confirmationToken ? '/api/mark-packed' : '/api/scan';
+      let res, data;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (signal.aborted) throw Error('Request already confirmed');
+        const attemptController = new AbortController();
+        const abort = () => attemptController.abort();
+        const timeout = setTimeout(abort, 12000);
+        signal.addEventListener('abort', abort, { once: true });
+        try {
+          res = await this.fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body, signal: attemptController.signal });
+          if (res.status >= 500 || res.status === 429) throw new Error('Temporary server failure');
+          data = await res.json();
+          break;
+        } catch (error) {
+          if (attempt === 2 || signal.aborted) throw error;
+          await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        } finally {
+          clearTimeout(timeout);
+          signal.removeEventListener('abort', abort);
+        }
+      }
+      if (!res.ok) {
+        // Only validation/setup errors prove this request was not accepted.
+        if ([400, 409, 415].includes(res.status) && this.pending?.id === request.id) { this.pending = null; this.storage.removeItem('fast_search_pending_request'); }
+        throw Object.assign(new Error(data.error || 'Server could not save scan'), { status: res.status, code: data.code, lookup: data.lookup });
+      }
+      return data;
+  }
   getProgress(orderTotals = {}) {
     const progress = {};
     for (const [ord, total] of Object.entries(orderTotals)) {
@@ -424,17 +354,6 @@ export class PackingManager {
     };
   }
 
-  clearLogs(skipApi = false) {
-    this.scanLog = [];
-    this.packedCounts.clear();
-    this.save();
-    if (!skipApi) {
-      try {
-        fetch('/api/clear-scans', { method: 'POST' });
-      } catch (e) {}
-    }
-  }
-
   exportExcel(orderTotals = {}) {
     const wb = XLSX.utils.book_new();
 
@@ -464,5 +383,4 @@ export class PackingManager {
     XLSX.writeFile(wb, `Packing_Export_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 }
-
 export const packingManager = new PackingManager();

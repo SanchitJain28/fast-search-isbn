@@ -1,0 +1,66 @@
+{
+  "catalog": "master-5th-nov.csv",
+  "cases": [
+    {
+      "id": "noisy-different-edition",
+      "query": "Basics of MATLAB and Beyond 3rd edition",
+      "expectedTopThree": ["9780367411718"],
+      "expectedNextOrder": "317"
+    },
+    {
+      "id": "tamil-native",
+      "query": "பாடுக பாட்டே",
+      "expectedTopThree": ["9788184469660"],
+      "expectedNextOrder": "322"
+    },
+    {
+      "id": "bengali-native",
+      "query": "১০৫ নং রুমের মেয়েটা",
+      "expectedTopThree": ["9781542016568"],
+      "expectedNextOrder": "322"
+    },
+    {
+      "id": "malayalam-native",
+      "query": "വൈവാഹികം",
+      "expectedTopThree": ["9789359621845"],
+      "expectedNextOrder": "327"
+    },
+    {
+      "id": "diacritics-and-copy-order",
+      "query": "Lata didi ajiba dastam hai ye",
+      "expectedTopThree": ["9789350000182"],
+      "expectedOrderSequence": ["322", "OX2"],
+      "expectedAfterSequence": "DUPLICATE"
+    },
+    {
+      "id": "same-title-different-isbns",
+      "query": "Macbeth",
+      "ambiguousIdentities": [
+        { "isbn": "9788121905084", "order": "322" },
+        { "isbn": "9781905716791", "order": "ZB343" },
+        { "isbn": "9788122439823", "order": "ZB343" },
+        { "isbn": "9780195667981", "order": "ZB344" }
+      ],
+      "expectedDecision": "REVIEW"
+    },
+    {
+      "id": "inside-page-isbn10",
+      "isbnText": "0-7007-0200-8",
+      "expectedIsbn13": "9780700702008",
+      "expectedNextOrder": "317"
+    },
+    {
+      "id": "unreadable-cover",
+      "query": "",
+      "isbnText": "",
+      "expectedDecision": "NO_MATCH"
+    }
+  ],
+  "normalizationCases": [
+    {
+      "id": "devanagari-to-latin",
+      "query": "Sri Hari Krishna",
+      "title": "श्री हरि कृष्ण"
+    }
+  ]
+}

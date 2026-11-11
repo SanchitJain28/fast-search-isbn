@@ -16,6 +16,7 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/mcp.json
 .idea
 .DS_Store
 *.suo
@@ -31,3 +32,7 @@ dist-ssr
 credentials.json
 *.key.json
 scans.csv
+
+# Durable packing database, backups and migration reports
+data/
+!.env.example

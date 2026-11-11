@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0..1,0&display=block" rel="stylesheet">
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:rgba(0,0,0,.87);--mute:rgba(0,0,0,.6);--line:rgba(0,0,0,.12);--outline:rgba(0,0,0,.23);--hover:rgba(0,0,0,.04);--soft:rgba(0,0,0,.08);--primary:#3a63f3;--primary-dark:#2848c4;--on-primary:#fff;--p-a04:rgba(58,99,243,.04);--p-a08:rgba(58,99,243,.08);--p-a12:rgba(58,99,243,.12);--p-a50:rgba(58,99,243,.5);--p-track:rgba(58,99,243,.22);--ok:#2e7d32;--warn:#ed6c02;--err:#d32f2f;--err-a50:rgba(211,47,47,.5);--err-a04:rgba(211,47,47,.04);--side:#26272b;--s-ink:#fff;--s-mute:rgba(255,255,255,.7);--s-hover:rgba(255,255,255,.08);--s-line:rgba(255,255,255,.12);--s-sel:rgba(109,139,246,.2);--s-sel-ink:#b9c8ff;--e1:0 2px 1px -1px rgba(0,0,0,.2),0 1px 1px 0 rgba(0,0,0,.14),0 1px 3px 0 rgba(0,0,0,.12);--e2:0 3px 1px -2px rgba(0,0,0,.2),0 2px 2px 0 rgba(0,0,0,.14),0 1px 5px 0 rgba(0,0,0,.12);--e4:0 2px 4px -1px rgba(0,0,0,.2),0 4px 5px 0 rgba(0,0,0,.14),0 1px 10px 0 rgba(0,0,0,.12);color-scheme:light}
+:root[data-theme="dark"]{--bg:#121212;--panel:#1e1e1e;--ink:#fff;--mute:rgba(255,255,255,.7);--line:rgba(255,255,255,.12);--outline:rgba(255,255,255,.23);--hover:rgba(255,255,255,.08);--soft:rgba(255,255,255,.16);--primary:#7d97f8;--primary-dark:#5b7ef7;--on-primary:rgba(0,0,0,.87);--p-a04:rgba(125,151,248,.08);--p-a08:rgba(125,151,248,.16);--p-a12:rgba(125,151,248,.2);--p-a50:rgba(125,151,248,.5);--p-track:rgba(125,151,248,.25);--ok:#66bb6a;--warn:#ffa726;--err:#f44336;--err-a50:rgba(244,67,54,.5);--err-a04:rgba(244,67,54,.08);--side:#1a1a1a;--e1:0 2px 1px -1px rgba(0,0,0,.5),0 1px 1px 0 rgba(0,0,0,.35),0 1px 3px 0 rgba(0,0,0,.3);--e2:0 3px 1px -2px rgba(0,0,0,.5),0 2px 2px 0 rgba(0,0,0,.35),0 1px 5px 0 rgba(0,0,0,.3);--e4:0 2px 4px -1px rgba(0,0,0,.5),0 4px 5px 0 rgba(0,0,0,.35),0 1px 10px 0 rgba(0,0,0,.3);color-scheme:dark}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Roboto',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--primary)}a:hover{color:var(--primary-dark)}
+@keyframes ripple{from{transform:scale(0);opacity:.3}to{transform:scale(1);opacity:0}}
+[data-rac]{outline:none;transition:background-color 250ms cubic-bezier(.4,0,.2,1),color 250ms,border-color 250ms,box-shadow 250ms cubic-bezier(.4,0,.2,1)}
+button[data-rac]{position:relative;overflow:hidden}
+[data-ripple]{position:absolute;border-radius:50%;background:currentColor;pointer-events:none;animation:ripple 550ms cubic-bezier(.4,0,.2,1) forwards}
+[data-rac][data-focus-visible]{outline:2px solid var(--primary);outline-offset:2px}
+[data-sym]{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;font-size:20px;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;direction:ltr;-webkit-font-feature-settings:'liga';font-feature-settings:'liga';font-variation-settings:'FILL' 0,'wght' 400,'opsz' 20;width:20px;height:20px;overflow:hidden;flex:none;display:inline-block}
+[role="tab"]{background:transparent;color:var(--s-mute);border:0}
+[role="tab"][data-hovered]{background:var(--s-hover);color:var(--s-ink)}
+[role="tab"][data-selected]{background:var(--s-sel);color:var(--s-sel-ink)}
+[role="tab"][data-selected] [data-sym]{font-variation-settings:'FILL' 1,'wght' 400,'opsz' 20}
+[role="tab"][data-selected][data-hovered]{background:rgba(109,139,246,.28)}
+[role="tab"] [data-part="count"]{background:var(--s-line);color:var(--s-ink)}
+[role="tab"][data-selected] [data-part="count"]{background:#7d97f8;color:#0d1640}
+[role="switch"]{background:transparent;border:0;color:var(--s-mute)}
+[role="switch"][data-hovered]{background:var(--s-hover);color:var(--s-ink)}
+[role="switch"] [data-part="track"]{background:rgba(255,255,255,.3);transition:background-color 150ms}
+[role="switch"] [data-part="thumb"]{background:#e0e0e0;box-shadow:var(--e1);transform:translateX(0);transition:transform 150ms cubic-bezier(.4,0,.2,1),background-color 150ms,box-shadow 150ms}
+[role="switch"][data-hovered] [data-part="thumb"]{box-shadow:var(--e1),0 0 0 9px rgba(255,255,255,.08)}
+[role="switch"][data-selected] [data-part="track"]{background:rgba(125,151,248,.5)}
+[role="switch"][data-selected] [data-part="thumb"]{background:#7d97f8;transform:translateX(20px)}
+button[data-variant="contained"]{background:var(--primary);color:var(--on-primary);border:0;box-shadow:var(--e2)}
+button[data-variant="contained"][data-hovered]{background:var(--primary-dark);box-shadow:var(--e4)}
+button[data-variant="outlined"]{background:transparent;color:var(--primary);border:1px solid var(--p-a50)}
+button[data-variant="outlined"][data-hovered]{background:var(--p-a04);border-color:var(--primary)}
+button[data-variant="outlined-error"]{background:transparent;color:var(--err);border:1px solid var(--err-a50)}
+button[data-variant="outlined-error"][data-hovered]{background:var(--err-a04);border-color:var(--err)}
+button[data-variant="text-success"]{background:transparent;color:var(--ok);border:0;cursor:default}
+button[data-variant="chip"]{background:transparent;color:var(--ink);border:1px solid var(--outline)}
+button[data-variant="chip"][data-hovered]{background:var(--hover)}
+button[data-variant="chip"][data-selected]{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+button[data-variant="row"]{background:transparent;border:0;color:var(--ink)}
+button[data-variant="row"][data-hovered]{background:var(--hover)}
+button[data-variant="row"][data-selected]{background:var(--p-a08)}
+button[data-variant="row"][data-selected][data-hovered]{background:var(--p-a12)}
+input[data-rac],textarea{background:transparent;color:var(--ink);border:1px solid var(--outline)}
+input[data-rac][data-hovered]{border-color:var(--ink)}
+input[data-rac][data-focused]{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+input[data-rac]::placeholder{color:var(--mute);opacity:1}
+[data-card]{border-color:transparent;box-shadow:var(--e1)}
+[data-card][data-latest],[data-card][data-selected]{border-color:var(--primary)}
+[data-hl]{background:var(--p-a12);color:var(--primary);border-radius:2px}
+[data-tone="ok"]{color:var(--ok)}[data-tone="warn"]{color:var(--warn)}[data-tone="err"]{color:var(--err)}
+[data-status="PACK"] [data-part="dot"],[data-status="ok"] [data-part="dot"]{background:var(--ok)}
+[data-status="DUPLICATE"] [data-part="dot"],[data-status="dup"] [data-part="dot"]{background:var(--warn)}
+[data-status="NOT_FOUND"] [data-part="dot"]{background:var(--err)}
+[data-order] [data-part="odot"]{background:var(--mute)}
+[data-order="317"] [data-part="odot"]{background:#3a63f3}
+[data-order="322"] [data-part="odot"]{background:#2e7d32}
+[data-order="323"] [data-part="odot"]{background:#ed6c02}
+[data-order="327"] [data-part="odot"]{background:#9c27b0}
+[data-order="OX2"] [data-part="odot"]{background:#d32f2f}
+[data-part="ptrack"]{background:var(--p-track)}
+[data-part="bar"]{background:var(--primary)}
+[data-complete] [data-part="ptrack"]{background:rgba(46,125,50,.25)}
+[data-complete] [data-part="bar"]{background:var(--ok)}
+kbd{font-family:'Roboto Mono',monospace;font-size:11px;padding:1px 5px;border:1px solid var(--outline);border-radius:4px;color:var(--mute)}
+</style>
+</helmet>
+<div style="display:grid;grid-template-columns:240px minmax(0,1fr);min-height:100vh;background:var(--bg);color:var(--ink)">
+  <aside style="display:flex;flex-direction:column;gap:24px;padding:20px 12px 14px;background:var(--side);color:var(--s-ink);position:sticky;top:0;height:100vh;box-sizing:border-box">
+    <div style="display:flex;align-items:center;gap:9px;padding:0 10px">
+      <div style="font-weight:600;font-size:15px;letter-spacing:-0.01em">FastSearch ISBN</div>
+    </div>
+    <nav role="tablist" aria-orientation="vertical" aria-label="Sections" style="display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{ nav }}" as="t" hint-placeholder-count="5">
+        <button data-rac="" role="tab" aria-selected="{{ t.ariaSel }}" data-selected="{{ t.selected }}" onClick="{{ t.select }}" style="display:flex;align-items:center;gap:20px;width:100%;padding:8px 16px;min-height:44px;border-radius:4px;font:inherit;font-size:14px;font-weight:500;letter-spacing:.1px;text-align:left;cursor:pointer">
+          <span data-sym="" aria-hidden="true">{{ t.icon }}</span>
+          <span style="flex:1">{{ t.label }}</span>
+          <sc-if value="{{ t.hasCount }}" hint-placeholder-val="{{ false }}"><span data-part="count" style="font-family:'Roboto Mono',monospace;font-size:10.5px;padding:1px 6px;border-radius:99px">{{ t.count }}</span></sc-if>
+        </button>
+      </sc-for>
+    </nav>
+    <div style="flex:1"></div>
+    <div style="display:flex;flex-direction:column;gap:12px;padding:0 10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+        <span style="color:var(--s-mute)">Station</span>
+        <span style="display:flex;align-items:center;gap:6px;font-weight:500"><span style="width:6px;height:6px;border-radius:9px;background:var(--ok)"></span>PK-04</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+        <span style="color:var(--s-mute)">Live packers</span>
+        <span style="font-family:'Roboto Mono',monospace;font-weight:500">{{ packers }}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px">
+        <span style="color:var(--s-mute)">Sheet sync</span>
+        <span data-status="{{ syncStatus }}" style="display:flex;align-items:center;gap:6px;font-weight:500"><span data-part="dot" style="width:6px;height:6px;border-radius:9px"></span>{{ syncLabel }}</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--s-line);padding-top:10px">
+      <button data-rac="" role="switch" aria-checked="{{ darkAria }}" data-selected="{{ darkSel }}" onClick="{{ toggleTheme }}" style="display:flex;align-items:center;gap:20px;width:100%;padding:8px 16px;min-height:44px;border-radius:4px;font:inherit;font-size:14px;cursor:pointer">
+        <span data-sym="" aria-hidden="true">dark_mode</span><span style="flex:1;text-align:left">Dark mode</span>
+        <span data-part="track" style="position:relative;display:block;width:34px;height:14px;border-radius:7px;flex:none;margin-right:3px"><span data-part="thumb" style="position:absolute;top:-3px;left:-3px;width:20px;height:20px;border-radius:50%"></span></span>
+      </button>
+      <button data-rac="" role="switch" aria-checked="{{ audioAria }}" data-selected="{{ audioSel }}" onClick="{{ toggleAudio }}" style="display:flex;align-items:center;gap:20px;width:100%;padding:8px 16px;min-height:44px;border-radius:4px;font:inherit;font-size:14px;cursor:pointer">
+        <span data-sym="" aria-hidden="true">volume_up</span><span style="flex:1;text-align:left">Scan sounds</span>
+        <span data-part="track" style="position:relative;display:block;width:34px;height:14px;border-radius:7px;flex:none;margin-right:3px"><span data-part="thumb" style="position:absolute;top:-3px;left:-3px;width:20px;height:20px;border-radius:50%"></span></span>
+      </button>
+    </div>
+  </aside>
+
+  <main role="tabpanel" style="padding:40px 40px;box-sizing:border-box;min-width:0">
+
+    <sc-if value="{{ isScanning }}" hint-placeholder-val="{{ true }}">
+      <div data-screen-label="Scanning" style="max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <form onSubmit="{{ onScanSubmit }}" style="display:flex;margin:0">
+          <input data-rac="" id="barcode" aria-label="Barcode Reader" ref="{{ scanRef }}" value="{{ scanValue }}" onChange="{{ onScanChange }}" autocomplete="off" inputmode="numeric" placeholder="Scan or type an ISBN-13" style="font-family:'Roboto Mono',monospace;font-size:20px;letter-spacing:.03em;padding:16.5px 14px;border-radius:4px;width:100%;box-sizing:border-box">
+        </form>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ scanCards }}" as="c" hint-placeholder-count="2">
+            <div data-card="" data-status="{{ c.statusType }}" data-latest="{{ c.latest }}" style="display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:16px;align-items:center;padding:12px 16px;background:var(--panel);border-width:1px;border-style:solid;border-radius:4px">
+              <div data-order="{{ c.order }}" style="display:flex;flex-direction:column;gap:1px">
+                <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--mute)"><span data-part="odot" style="width:6px;height:6px;border-radius:9px"></span>Order</div>
+                <div style="font-family:'Roboto Mono',monospace;font-size:20px;font-weight:500;line-height:1.2">{{ c.orderLabel }}</div>
+              </div>
+              <div style="min-width:0;display:flex;flex-direction:column;gap:2px">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                  <span data-part="dot" style="width:7px;height:7px;border-radius:9px;flex:none"></span>
+                  <span style="font-size:14.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.title }}</span>
+                </div>
+                <div style="font-size:12.5px;color:var(--mute);text-wrap:pretty;padding-left:15px">{{ c.sub }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+                <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute);white-space:nowrap"><span style="color:var(--ink);font-weight:500">{{ c.label }}</span><span style="font-family:'Roboto Mono',monospace">{{ c.time }}</span></div>
+                <sc-if value="{{ c.canUndo }}" hint-placeholder-val="{{ false }}">
+                  <button data-rac="" data-variant="outlined" onClick="{{ c.undo }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Undo</button>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSearch }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Title Search" style="max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--panel);border-radius:4px;box-shadow:var(--e1)">
+          <div style="position:relative;display:flex;align-items:center">
+            <span data-sym="" aria-hidden="true" style="position:absolute;left:14px;color:var(--mute)">search</span>
+            <input data-rac="" ref="{{ searchRef }}" value="{{ query }}" onChange="{{ onQuery }}" onKeyDown="{{ onSearchKey }}" spellcheck="false" autocomplete="off" placeholder="Book title or ISBN" style="font:inherit;font-size:15px;padding:11px 92px 11px 40px;border-radius:4px;width:100%;box-sizing:border-box">
+            <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
+              <span style="position:absolute;right:12px;display:flex;align-items:center;gap:8px">
+                <span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute)">{{ latency }}</span>
+                <button data-rac="" data-variant="outlined" onClick="{{ clearQuery }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Esc</button>
+              </span>
+            </sc-if>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+              <span style="font-size:12px;color:var(--mute);margin-right:2px">Order</span>
+              <sc-for list="{{ orderChips }}" as="o" hint-placeholder-count="6">
+                <button data-rac="" data-variant="chip" data-selected="{{ o.selected }}" onClick="{{ o.select }}" style="display:inline-flex;align-items:center;height:24px;padding:0 10px;font:inherit;font-size:13px;border-radius:16px;cursor:pointer;white-space:nowrap">{{ o.label }}</button>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:var(--mute)">
+              <span style="display:flex;align-items:center;gap:4px"><kbd>↑</kbd><kbd>↓</kbd>Move</span>
+              <span style="display:flex;align-items:center;gap:4px"><kbd>↵</kbd>Pack</span>
+            </div>
+          </div>
+        </div>
+
+        <sc-if value="{{ hasQuery }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:12.5px;color:var(--mute);padding:0 2px">{{ resultSummary }}</div>
+            <sc-for list="{{ results }}" as="r" hint-placeholder-count="3">
+              <div data-card="" data-selected="{{ r.sel }}" onMouseEnter="{{ r.hover }}" style="display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:12px 16px;background:var(--panel);border-width:1px;border-style:solid;border-radius:4px">
+                <div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:5px">
+                  <div style="font-size:14.5px;font-weight:500;text-wrap:pretty"><sc-for list="{{ r.parts }}" as="p" hint-placeholder-count="1"><span data-hl="{{ p.hl }}">{{ p.text }}</span></sc-for></div>
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;color:var(--mute)">
+                    <span data-order="{{ r.order }}" style="display:flex;align-items:center;gap:5px;color:var(--ink);font-weight:500"><span data-part="odot" style="width:6px;height:6px;border-radius:9px"></span>Order {{ r.order }}</span>
+                    <span style="font-family:'Roboto Mono',monospace">{{ r.isbn }}</span>
+                    <sc-if value="{{ r.hasPackText }}" hint-placeholder-val="{{ false }}"><span data-tone="{{ r.tone }}" style="font-weight:500">{{ r.packText }}</span></sc-if>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+                  <sc-if value="{{ r.full }}" hint-placeholder-val="{{ false }}">
+                    <button data-rac="" data-variant="text-success" disabled="" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Packed</button>
+                  </sc-if>
+                  <sc-if value="{{ r.notFull }}" hint-placeholder-val="{{ true }}">
+                    <button data-rac="" data-variant="contained" onClick="{{ r.pack }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ r.packLabel }}</button>
+                  </sc-if>
+                  <button data-rac="" data-variant="outlined" onClick="{{ r.copy }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ r.copyLabel }}</button>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:28px 16px;text-align:center;display:flex;flex-direction:column;gap:4px;background:var(--panel);border-radius:4px;box-shadow:var(--e1)">
+                <div style="font-size:14px;font-weight:500">No titles match "{{ query }}"</div>
+                <div style="font-size:12.5px;color:var(--mute)">Check the spelling or switch the order filter to All.</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ noQuery }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:10px;padding:4px 2px">
+            <div style="font-size:12.5px;color:var(--mute)">Try a title</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <sc-for list="{{ samples }}" as="s" hint-placeholder-count="6">
+                <button data-rac="" data-variant="chip" onClick="{{ s.pick }}" style="display:inline-flex;align-items:center;height:24px;padding:0 10px;font:inherit;font-size:13px;border-radius:16px;cursor:pointer;white-space:nowrap">{{ s.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ hasRecent }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;background:var(--panel);border-radius:4px;box-shadow:var(--e1);padding:12px 16px 4px">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px">
+              <span style="font-size:13px;font-weight:500">Recently copied</span>
+              <button data-rac="" data-variant="outlined" onClick="{{ clearRecent }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Clear</button>
+            </div>
+            <sc-for list="{{ recent }}" as="r" hint-placeholder-count="2">
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13px">
+                <div style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+                <div style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute)">{{ r.isbn }} · {{ r.time }}</div>
+                <button data-rac="" data-variant="outlined" onClick="{{ r.copy }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Copy</button>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="For Review" style="max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <h1 style="margin:0;font-size:20px;font-weight:500;letter-spacing:.15px">For Review</h1>
+            <div style="font-size:12.5px;color:var(--mute)">{{ reviewTotal }} titles to match against the catalog</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button data-rac="" data-variant="outlined" onClick="{{ openPaste }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Edit list</button>
+            <button data-rac="" data-variant="outlined" onClick="{{ resetQueue }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Reset</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ pasteOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--panel);border-radius:4px;box-shadow:var(--e1)">
+            <div style="font-size:13px;font-weight:500">One title per line. Separate language variants with commas.</div>
+            <textarea value="{{ pasteText }}" onChange="{{ onPaste }}" rows="7" style="font-family:'Roboto Mono',monospace;font-size:12.5px;padding:10px 12px;border-radius:4px;border:1px solid var(--line);background:var(--soft);color:var(--ink);resize:vertical;outline:none"></textarea>
+            <div style="display:flex;justify-content:flex-end;gap:6px">
+              <button data-rac="" data-variant="outlined" onClick="{{ closePaste }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Cancel</button>
+              <button data-rac="" data-variant="contained" onClick="{{ savePaste }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ pasteSaveLabel }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start">
+          <div style="flex:1 1 240px;max-width:100%;display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--panel);border-radius:4px;box-shadow:var(--e1);position:sticky;top:20px;max-height:calc(100vh - 140px);box-sizing:border-box">
+            <input data-rac="" value="{{ queueFilter }}" onChange="{{ onQueueFilter }}" placeholder="Filter titles" style="font:inherit;font-size:13px;padding:7px 10px;border-radius:4px;width:100%;box-sizing:border-box">
+            <div style="display:flex;flex-direction:column;gap:2px;overflow:auto;min-height:0">
+              <sc-for list="{{ queue }}" as="q" hint-placeholder-count="6">
+                <button data-rac="" data-variant="row" data-selected="{{ q.selected }}" onClick="{{ q.select }}" style="display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:8px 10px;border-radius:4px;font:inherit;text-align:left;cursor:pointer">
+                  <span style="display:flex;gap:8px;align-items:baseline;min-width:0">
+                    <span style="font-family:'Roboto Mono',monospace;font-size:11px;color:var(--mute);flex:none">{{ q.num }}</span>
+                    <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.primary }}</span>
+                  </span>
+                  <sc-if value="{{ q.hasVariants }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px;color:var(--mute);padding-left:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.variants }}</span></sc-if>
+                </button>
+              </sc-for>
+              <sc-if value="{{ queueEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:12.5px;color:var(--mute);padding:10px">No titles match.</div></sc-if>
+            </div>
+          </div>
+
+          <div style="flex:999 1 420px;display:flex;flex-direction:column;gap:10px;min-width:0">
+            <div style="display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--panel);border-radius:4px;box-shadow:var(--e1)">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                <span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute)">{{ reviewPos }}</span>
+                <div style="display:flex;gap:6px">
+                  <button data-rac="" data-variant="outlined" onClick="{{ prevTitle }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Prev</button>
+                  <button data-rac="" data-variant="outlined" onClick="{{ nextTitle }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Next</button>
+                </div>
+              </div>
+              <div style="font-size:16px;font-weight:500;text-wrap:pretty">{{ reviewOriginal }}</div>
+              <input data-rac="" value="{{ reviewQuery }}" onChange="{{ onReviewQuery }}" placeholder="Adjust the search" style="font:inherit;font-size:14px;padding:9px 12px;border-radius:4px;width:100%;box-sizing:border-box">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px">
+                <sc-if value="{{ hasReviewVariants }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    <sc-for list="{{ reviewVariants }}" as="v" hint-placeholder-count="2">
+                      <button data-rac="" data-variant="chip" data-selected="{{ v.selected }}" onClick="{{ v.pick }}" style="display:inline-flex;align-items:center;height:24px;padding:0 10px;font:inherit;font-size:13px;border-radius:16px;cursor:pointer;white-space:nowrap">{{ v.label }}</button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <span style="font-size:12px;color:var(--mute);margin-left:auto">{{ reviewSummary }}</span>
+              </div>
+            </div>
+
+            <sc-for list="{{ candidates }}" as="r" hint-placeholder-count="2">
+              <div data-card="" style="display:flex;flex-wrap:wrap;gap:10px 12px;align-items:center;padding:12px 16px;background:var(--panel);border-width:1px;border-style:solid;border-radius:4px">
+                <span style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute);width:24px;flex:none;align-self:flex-start;padding-top:2px">{{ r.rank }}</span>
+                <div style="flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:5px">
+                  <div style="font-size:14px;font-weight:500;text-wrap:pretty"><sc-for list="{{ r.parts }}" as="p" hint-placeholder-count="1"><span data-hl="{{ p.hl }}">{{ p.text }}</span></sc-for></div>
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;color:var(--mute)">
+                    <span data-order="{{ r.order }}" style="display:flex;align-items:center;gap:5px;color:var(--ink);font-weight:500"><span data-part="odot" style="width:6px;height:6px;border-radius:9px"></span>Order {{ r.order }}</span>
+                    <span style="font-family:'Roboto Mono',monospace">{{ r.isbn }}</span>
+                    <sc-if value="{{ r.hasPackText }}" hint-placeholder-val="{{ false }}"><span data-tone="{{ r.tone }}" style="font-weight:500">{{ r.packText }}</span></sc-if>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+                  <sc-if value="{{ r.full }}" hint-placeholder-val="{{ false }}">
+                    <button data-rac="" data-variant="text-success" disabled="" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Packed</button>
+                  </sc-if>
+                  <sc-if value="{{ r.notFull }}" hint-placeholder-val="{{ true }}">
+                    <button data-rac="" data-variant="contained" onClick="{{ r.pack }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ r.packLabel }}</button>
+                  </sc-if>
+                  <button data-rac="" data-variant="outlined" onClick="{{ r.copy }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ r.copyLabel }}</button>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noCandidates }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:28px 16px;text-align:center;display:flex;flex-direction:column;gap:4px;background:var(--panel);border-radius:4px;box-shadow:var(--e1)">
+                <div style="font-size:14px;font-weight:500">No catalog match</div>
+                <div style="font-size:12.5px;color:var(--mute)">Remove extra words, or try one of the language variants.</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Progress Dashboard" style="max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <h1 style="margin:0;font-size:20px;font-weight:500;letter-spacing:.15px">Progress Dashboard</h1>
+          <div style="font-size:12.5px;color:var(--mute)">Live across all stations</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+          <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+            <div style="padding:14px 16px;background:var(--panel);border-radius:4px;box-shadow:var(--e1);display:flex;flex-direction:column;gap:4px">
+              <div style="font-size:12.5px;color:var(--mute)">{{ k.label }}</div>
+              <div data-tone="{{ k.tone }}" style="font-family:'Roboto Mono',monospace;font-size:22px;font-weight:500">{{ k.value }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;background:var(--panel);border-radius:4px;box-shadow:var(--e1);padding:14px 16px 6px">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:6px">
+            <span style="font-size:14px;font-weight:500">Packing by order</span>
+            <button data-rac="" data-variant="outlined" onClick="{{ exportCsv }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Export</button>
+          </div>
+          <sc-for list="{{ orderRows }}" as="o" hint-placeholder-count="5">
+            <button data-rac="" data-variant="row" data-complete="{{ o.complete }}" onClick="{{ o.open }}" style="display:flex;flex-direction:column;gap:8px;padding:12px 8px;margin:0 -8px;border-radius:4px;font:inherit;text-align:left;cursor:pointer">
+              <span style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;width:100%">
+                <span data-order="{{ o.order }}" style="display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:500"><span data-part="odot" style="width:7px;height:7px;border-radius:9px"></span>Order {{ o.order }}</span>
+                <span style="display:flex;gap:12px;font-size:12px;color:var(--mute)"><span style="font-family:'Roboto Mono',monospace;color:var(--ink)">{{ o.fill }}</span><span>{{ o.remaining }}</span></span>
+              </span>
+              <span data-part="ptrack" style="display:block;width:100%;height:4px;overflow:hidden"><span data-part="bar" style="display:block;height:100%;width:{{ o.pct }}"></span></span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isLog }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Scan Log" style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <h1 style="margin:0;font-size:20px;font-weight:500;letter-spacing:.15px">Scan Log</h1>
+            <div style="font-size:12.5px;color:var(--mute)">{{ logSummary }}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <sc-for list="{{ logFilters }}" as="f" hint-placeholder-count="4">
+              <button data-rac="" data-variant="chip" data-selected="{{ f.selected }}" onClick="{{ f.select }}" style="display:inline-flex;align-items:center;height:24px;padding:0 10px;font:inherit;font-size:13px;border-radius:16px;cursor:pointer;white-space:nowrap">{{ f.label }}</button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;background:var(--panel);border-radius:4px;box-shadow:var(--e1);padding:4px 16px">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 126px 70px 104px;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:500;color:var(--ink)"><div>Time</div><div>Title</div><div>ISBN</div><div>Order</div><div>Status</div></div>
+          <sc-for list="{{ logRows }}" as="r" hint-placeholder-count="4">
+            <div data-status="{{ r.statusType }}" style="display:grid;grid-template-columns:64px minmax(0,1fr) 126px 70px 104px;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px">
+              <div style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute)">{{ r.time }}</div>
+              <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.title }}</div>
+              <div style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:var(--mute)">{{ r.isbn }}</div>
+              <div data-order="{{ r.order }}" style="display:flex;align-items:center;gap:5px;font-size:12px"><span data-part="odot" style="width:6px;height:6px;border-radius:9px"></span>{{ r.orderLabel }}</div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)"><span data-part="dot" style="width:6px;height:6px;border-radius:9px"></span>{{ r.label }}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ logEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px;color:var(--mute);padding:18px 0">No scans yet this session.</div></sc-if>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:6px">
+          <button data-rac="" data-variant="outlined" onClick="{{ exportCsv }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">Export CSV</button>
+          <button data-rac="" data-variant="outlined-error" onClick="{{ clearLog }}" style="display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;letter-spacing:.46px;text-transform:uppercase;line-height:1.75;padding:3px 10px;border-radius:4px;cursor:pointer;white-space:nowrap">{{ clearLabel }}</button>
+        </div>
+      </div>
+    </sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;maxCards&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:6,&quot;min&quot;:1,&quot;max&quot;:20,&quot;tsType&quot;:&quot;number&quot;},&quot;packers&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;tsType&quot;:&quot;number&quot;}}">
+const BOOKS = [
+  { isbn: '9780199254095', title: 'MATLAB and Beyond: A Practical Guide', order: '317' },
+  { isbn: '9788129135728', title: 'Unhappy India', order: '322' },
+  { isbn: '9788129135728', title: 'Unhappy India', order: '327' },
+  { isbn: '9780321486813', title: 'Compilers: Principles, Techniques and Tools', order: '317' },
+  { isbn: '9781617295959', title: 'Compiler Building with LLVM', order: '323' },
+  { isbn: '9789352704453', title: 'Essentials of Medical Pharmacology', order: '322' },
+  { isbn: '9789352704453', title: 'Essentials of Medical Pharmacology', order: '327' },
+  { isbn: '9780702074486', title: 'Rang and Dale\u2019s Pharmacology', order: 'OX2' },
+  { isbn: '9780486661018', title: 'Statistical Thermodynamics', order: '317' },
+  { isbn: '9780935702477', title: 'An Introduction to Statistical Thermodynamics', order: '323' },
+  { isbn: '9781439848715', title: 'Tomatoes and Tomato Products: Nutritional Value', order: '327' },
+  { isbn: '9780198788607', title: 'Organic Chemistry', order: 'OX2' },
+  { isbn: '9780262033848', title: 'Introduction to Algorithms', order: '322' },
+  { isbn: '9780131103627', title: 'The C Programming Language', order: '317' },
+  { isbn: '9780070700222', title: 'Engineering Thermodynamics', order: '323' },
+  { isbn: '9788120340077', title: 'Digital Signal Processing', order: '327' }
+];
+const ORDERS = [
+  { id: '317', total: 420, base: 386 },
+  { id: '322', total: 360, base: 211 },
+  { id: '323', total: 280, base: 280 },
+  { id: '327', total: 510, base: 97 },
+  { id: 'OX2', total: 150, base: 41 }
+];
+const BASE = { scans: 1061, dup: 37, nf: 12 };
+const SAMPLES = ['Matlab and Beyond', 'Unhappy India', 'Compiler Building', 'Pharmacology', 'Statistical Thermodynamics', 'Tomatoes And Tomato'];
+const DEFAULT_QUEUE = [
+  'Statistical Thermodynamics, सांख्यिकीय ऊष्मागतिकी',
+  'Pharmacology, फार्माकोलॉजी, Farmacología',
+  'Compiler Building',
+  'Unhappy India, दुखी भारत',
+  'Tomatoes And Tomato',
+  'Matlab and Beyond',
+  'Algorithms, एल्गोरिदम',
+  'Fluid Mechanics Vol 2'
+];
+const TABS = [['scanning', 'Scanning', 'barcode_scanner'], ['search', 'Title Search', 'search'], ['review', 'For Review', 'fact_check'], ['dash', 'Progress Dashboard', 'dashboard'], ['log', 'Scan Log', 'list_alt']];
+const pad = n => String(n).padStart(2, '0');
+const fmt = t => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const copiesOf = isbn => BOOKS.filter(b => b.isbn === isbn);
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+let uid = 0;
+
+function search(q, order, limit) {
+  const t0 = performance.now();
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const seen = new Set();
+  const rows = BOOKS.filter(b => {
+    if (order !== 'ALL' && b.order !== order) return false;
+    const t = b.title.toLowerCase();
+    if (!terms.every(w => t.includes(w) || b.isbn.startsWith(w))) return false;
+    const key = b.isbn + b.order; if (seen.has(key)) return false; seen.add(key); return true;
+  });
+  const ms = performance.now() - t0;
+  return { rows: rows.slice(0, limit), total: rows.length, ms: ms < 0.1 ? '< 0.1 ms' : ms.toFixed(2) + ' ms' };
+}
+function parts(title, q) {
+  const terms = q.trim().split(/\s+/).filter(w => w.length > 1).map(esc);
+  if (!terms.length) return [{ text: title }];
+  const re = new RegExp(`(${terms.join('|')})`, 'gi');
+  return title.split(re).filter(Boolean).map(p => ({ text: p, hl: terms.some(t => new RegExp(`^${t}$`, 'i').test(p)) ? 'true' : undefined }));
+}
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const now = Date.now();
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('packline-prefs') || '{}'); } catch (e) { return {}; } })();
+    const dark = saved.theme ? saved.theme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    this.scanRef = React.createRef();
+    this.searchRef = React.createRef();
+    const mk = (isbn, statusType, ago, source) => {
+      const b = copiesOf(isbn)[0];
+      return { id: ++uid, isbn, title: b ? b.title : null, order: b ? b.order : null, statusType, t: now - ago, source, copyN: 1, total: b ? copiesOf(isbn).length : 0 };
+    };
+    const log = [
+      mk('9780262033848', 'PACK', 38000, 'scan'),
+      mk('9780486661018', 'PACK', 71000, 'scan'),
+      mk('9780486661018', 'DUPLICATE', 95000, 'scan'),
+      mk('9781234500017', 'NOT_FOUND', 140000, 'scan'),
+      mk('9780131103627', 'PACK', 210000, 'search')
+    ];
+    this.state = {
+      tab: 'scanning', dark, audio: saved.audio ?? true, now, lastSync: now - 4000, pending: 0,
+      scanValue: '', query: '', order: 'ALL', sel: 0, copied: null,
+      packed: { '9780262033848': 1, '9780486661018': 1, '9780131103627': 1 },
+      log, recent: [],
+      queue: DEFAULT_QUEUE, qIdx: 0, reviewQuery: 'Statistical Thermodynamics', queueFilter: '', pasteOpen: false, pasteText: '',
+      logFilter: 'ALL', confirmClear: false
+    };
+  }
+  componentDidMount() {
+    this.applyTheme();
+    this.timer = setInterval(() => {
+      const now = Date.now();
+      if (this.state.pending && now - this.state.lastSync > 6000) this.setState({ pending: 0, lastSync: now, now });
+      else this.setState({ now });
+    }, 1000);
+    let kb = false, pressed = null, hovered = null;
+    const rac = e => e.target.closest && e.target.closest('[data-rac]');
+    const ripple = (el, e) => {
+      const r = el.getBoundingClientRect(), d = Math.hypot(Math.max(e.clientX - r.left, r.right - e.clientX), Math.max(e.clientY - r.top, r.bottom - e.clientY)) * 2;
+      const sp = document.createElement('span'); sp.setAttribute('data-ripple', '');
+      Object.assign(sp.style, { width: d + 'px', height: d + 'px', left: (e.clientX - r.left - d / 2) + 'px', top: (e.clientY - r.top - d / 2) + 'px' });
+      el.appendChild(sp); setTimeout(() => sp.remove(), 600);
+    };
+    this.h = {
+      keydown: e => { kb = true; if ((e.key === ' ' || e.key === 'Enter') && rac(e)) { pressed = rac(e); pressed.setAttribute('data-pressed', 'true'); } },
+      keyup: () => { if (pressed) { pressed.removeAttribute('data-pressed'); pressed = null; } },
+      pointerdown: e => { kb = false; const el = rac(e); if (el && !el.disabled) { pressed = el; el.setAttribute('data-pressed', 'true'); if (el.tagName === 'BUTTON' && el.getAttribute('role') !== 'switch' && el.getAttribute('data-variant') !== 'text-success') ripple(el, e); } },
+      pointerup: () => { if (pressed) { pressed.removeAttribute('data-pressed'); pressed = null; } },
+      pointerover: e => { const el = rac(e); if (el === hovered) return; if (hovered) hovered.removeAttribute('data-hovered'); hovered = el && !el.disabled ? el : null; if (hovered) hovered.setAttribute('data-hovered', 'true'); },
+      focusin: e => { const el = rac(e); if (!el) return; el.setAttribute('data-focused', 'true'); if (kb) el.setAttribute('data-focus-visible', 'true'); },
+      focusout: e => { const el = rac(e); if (el) { el.removeAttribute('data-focused'); el.removeAttribute('data-focus-visible'); } }
+    };
+    this.h.pointercancel = this.h.pointerup;
+    Object.entries(this.h).forEach(([k, f]) => document.addEventListener(k, f, true));
+    this.focusFor('scanning');
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    Object.entries(this.h || {}).forEach(([k, f]) => document.removeEventListener(k, f, true));
+  }
+  applyTheme() { document.documentElement.setAttribute('data-theme', this.state.dark ? 'dark' : 'light'); this.savePrefs(); }
+  savePrefs() { try { localStorage.setItem('packline-prefs', JSON.stringify({ theme: this.state.dark ? 'dark' : 'light', audio: this.state.audio })); } catch (e) {} }
+  focusFor(tab) {
+    setTimeout(() => {
+      const r = tab === 'scanning' ? this.scanRef : tab === 'search' ? this.searchRef : null;
+      if (r && r.current) r.current.focus();
+    }, 30);
+  }
+  goTab(k, extra) { this.setState({ tab: k, confirmClear: false, ...(extra || {}) }, () => this.focusFor(k)); }
+  beep(kind) {
+    if (!this.state.audio) return;
+    try {
+      const ctx = this.ac || (this.ac = new (window.AudioContext || window.webkitAudioContext)());
+      const tones = kind === 'PACK' ? [988] : kind === 'DUPLICATE' ? [520, 520] : kind === 'COPY' ? [1320] : [300, 220];
+      tones.forEach((f, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + i * 0.13;
+        o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.05, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + (kind === 'COPY' ? 0.05 : 0.11));
+        o.connect(g).connect(ctx.destination); o.start(t0); o.stop(t0 + 0.12);
+      });
+    } catch (e) {}
+  }
+  pack(isbn, source) {
+    const now = Date.now();
+    if (this.last && this.last.isbn === isbn && now - this.last.t < 600) return;
+    this.last = { isbn, t: now };
+    const s = this.state, copies = copiesOf(isbn), total = copies.length, have = s.packed[isbn] || 0;
+    let entry;
+    if (!total) entry = { statusType: 'NOT_FOUND', title: null, order: null, total: 0, copyN: 0 };
+    else if (have >= total) entry = { statusType: 'DUPLICATE', title: copies[0].title, order: copies[Math.min(have, total) - 1].order, total, copyN: have };
+    else entry = { statusType: 'PACK', title: copies[have].title, order: copies[have].order, total, copyN: have + 1 };
+    entry = { ...entry, id: ++uid, isbn, t: now, source };
+    const patch = { log: [entry, ...s.log], pending: s.pending + 1, lastSync: now };
+    if (entry.statusType === 'PACK') patch.packed = { ...s.packed, [isbn]: have + 1 };
+    this.setState(patch);
+    this.beep(entry.statusType);
+  }
+  undo(id) {
+    const s = this.state, e = s.log.find(x => x.id === id);
+    if (!e) return;
+    const patch = { log: s.log.filter(x => x.id !== id) };
+    if (e.statusType === 'PACK') patch.packed = { ...s.packed, [e.isbn]: Math.max(0, (s.packed[e.isbn] || 1) - 1) };
+    this.setState(patch, () => this.focusFor('scanning'));
+  }
+  copy(item) {
+    try { navigator.clipboard.writeText(item.isbn); } catch (e) {}
+    this.beep('COPY');
+    const entry = { isbn: item.isbn, title: item.title, time: fmt(Date.now()) };
+    this.setState(s => ({ copied: item.isbn + item.order, recent: [entry, ...s.recent.filter(r => r.isbn !== item.isbn)].slice(0, 6) }));
+    clearTimeout(this.copyT);
+    this.copyT = setTimeout(() => this.setState({ copied: null }), 1200);
+  }
+  resultRow(b, q, i, sel) {
+    const s = this.state, total = copiesOf(b.isbn).length, have = s.packed[b.isbn] || 0, full = have >= total;
+    let packText = '', tone;
+    if (total > 1) { packText = `${have}/${total} packed`; tone = full ? 'ok' : have ? 'warn' : undefined; }
+    else if (full) { packText = 'Already packed'; tone = 'ok'; }
+    return {
+      ...b, parts: parts(b.title, q), sel: sel === i ? true : undefined, rank: '#' + (i + 1),
+      hasPackText: !!packText, packText, tone, full, notFull: !full,
+      packLabel: total > 1 && have > 0 ? `Pack copy ${have + 1} of ${total}` : 'Mark packed',
+      copyLabel: s.copied === b.isbn + b.order ? 'Copied' : 'Copy ISBN',
+      pack: () => this.pack(b.isbn, 'search'), copy: () => this.copy(b), hover: () => this.setState({ sel: i })
+    };
+  }
+  exportCsv() {
+    const rows = [['Time', 'ISBN13', 'Title', 'Order', 'Status']].concat(this.state.log.map(e => [fmt(e.t), e.isbn, e.title || '', e.order || '', e.statusType]));
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'scan-log.csv'; a.click();
+  }
+  renderVals() {
+    const s = this.state;
+    const max = this.props.maxCards ?? 6;
+
+    const scanCards = s.log.filter(e => e.source === 'scan').slice(0, max).map((e, i) => {
+      const base = { statusType: e.statusType, time: fmt(e.t), latest: i === 0 ? true : undefined, canUndo: i === 0 && e.statusType === 'PACK', undo: () => this.undo(e.id), order: e.order || 'none' };
+      if (e.statusType === 'NOT_FOUND') return { ...base, orderLabel: '—', title: 'Not in catalog', sub: `${e.isbn} · set aside for review`, label: 'Not found' };
+      if (e.statusType === 'DUPLICATE') return { ...base, orderLabel: e.order, title: e.title, sub: `All ${e.total} ${e.total === 1 ? 'copy' : 'copies'} already packed. Set aside.`, label: 'Duplicate' };
+      return { ...base, orderLabel: e.order, title: e.title, sub: e.total > 1 ? `Copy ${e.copyN} of ${e.total} · ${e.isbn}` : e.isbn, label: 'Packed' };
+    });
+
+    const res = s.query.trim() ? search(s.query, s.order, 60) : { rows: [], total: 0, ms: '' };
+    const sel = Math.min(s.sel, Math.max(0, res.rows.length - 1));
+    const results = res.rows.map((b, i) => this.resultRow(b, s.query, i, sel));
+
+    const qLine = s.queue[s.qIdx] || '';
+    const variants = qLine.split(',').map(v => v.trim()).filter(Boolean);
+    const cand = s.reviewQuery.trim() ? search(s.reviewQuery, 'ALL', 20) : { rows: [], total: 0, ms: '' };
+    const qf = s.queueFilter.trim().toLowerCase();
+    const queue = s.queue.map((line, idx) => ({ line, idx })).filter(x => !qf || x.line.toLowerCase().includes(qf)).map(({ line, idx }) => {
+      const v = line.split(',').map(x => x.trim()).filter(Boolean);
+      return { num: pad(idx + 1), primary: v[0] || line, hasVariants: v.length > 1, variants: v.slice(1).join(' · '), selected: idx === s.qIdx ? true : undefined, select: () => this.selectTitle(idx) };
+    });
+
+    const sess = { pack: 0, dup: 0, nf: 0, byOrder: {} };
+    s.log.forEach(e => {
+      if (e.statusType === 'PACK') { sess.pack++; sess.byOrder[e.order] = (sess.byOrder[e.order] || 0) + 1; }
+      else if (e.statusType === 'DUPLICATE') sess.dup++; else sess.nf++;
+    });
+    const orderRows = ORDERS.map(o => {
+      const packed = Math.min(o.total, o.base + (sess.byOrder[o.id] || 0)), pct = Math.round(packed / o.total * 100);
+      return { order: o.id, fill: `${packed} / ${o.total}`, remaining: packed >= o.total ? 'Complete' : `${o.total - packed} left · ${pct}%`, pct: pct + '%', complete: packed >= o.total ? true : undefined, open: () => this.goTab('search', { order: o.id }) };
+    });
+    const totalPacked = ORDERS.reduce((a, o) => a + Math.min(o.total, o.base + (sess.byOrder[o.id] || 0)), 0);
+    const nfmt = n => n.toLocaleString();
+
+    const lf = s.logFilter;
+    const logList = s.log.filter(e => lf === 'ALL' || e.statusType === lf);
+    const ago = Math.max(0, Math.round((s.now - s.lastSync) / 1000));
+
+    return {
+      nav: TABS.map(([k, label, icon]) => ({
+        label, icon, selected: s.tab === k ? true : undefined, ariaSel: s.tab === k ? 'true' : 'false',
+        hasCount: k === 'review' || k === 'log', count: k === 'review' ? s.queue.length : s.log.length,
+        select: () => this.goTab(k)
+      })),
+      isScanning: s.tab === 'scanning', isSearch: s.tab === 'search', isReview: s.tab === 'review', isDash: s.tab === 'dash', isLog: s.tab === 'log',
+      packers: this.props.packers ?? 3,
+      syncStatus: s.pending ? 'dup' : 'ok',
+      syncLabel: s.pending ? `${s.pending} pending` : (ago < 5 ? 'Just now' : ago < 60 ? ago + 's ago' : Math.floor(ago / 60) + 'm ago'),
+      darkSel: s.dark ? true : undefined, darkAria: s.dark ? 'true' : 'false',
+      audioSel: s.audio ? true : undefined, audioAria: s.audio ? 'true' : 'false',
+      toggleTheme: () => this.setState({ dark: !s.dark }, () => this.applyTheme()),
+      toggleAudio: () => this.setState({ audio: !s.audio }, () => this.savePrefs()),
+
+      scanRef: this.scanRef, scanValue: s.scanValue,
+      onScanChange: e => {
+        const v = e.target.value; this.setState({ scanValue: v });
+        clearTimeout(this.auto);
+        if (/^\d{13}$/.test(v.replace(/\D/g, ''))) this.auto = setTimeout(() => { this.pack(v.replace(/\D/g, ''), 'scan'); this.setState({ scanValue: '' }); }, 120);
+      },
+      onScanSubmit: e => { e.preventDefault(); const v = s.scanValue.replace(/\D/g, ''); if (v) { this.pack(v, 'scan'); this.setState({ scanValue: '' }); } },
+      scanCards,
+
+      searchRef: this.searchRef, query: s.query, hasQuery: !!s.query.trim(), noQuery: !s.query.trim(),
+      onQuery: e => this.setState({ query: e.target.value, sel: 0 }),
+      clearQuery: () => this.setState({ query: '', sel: 0 }, () => this.focusFor('search')),
+      onSearchKey: e => {
+        if (e.key === 'Escape') { e.preventDefault(); this.setState({ query: '', sel: 0 }); return; }
+        if (!res.rows.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); this.setState({ sel: (sel + 1) % res.rows.length }); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); this.setState({ sel: (sel - 1 + res.rows.length) % res.rows.length }); }
+        else if (e.key === 'Enter') { e.preventDefault(); this.pack(res.rows[sel].isbn, 'search'); }
+      },
+      latency: res.ms,
+      orderChips: [{ id: 'ALL', label: 'All' }].concat(ORDERS.map(o => ({ id: o.id, label: o.id }))).map(o => ({ label: o.label, selected: s.order === o.id ? true : undefined, select: () => this.setState({ order: o.id, sel: 0 }) })),
+      results, noResults: !!s.query.trim() && !res.rows.length,
+      resultSummary: `${res.rows.length} of ${res.total} matching titles`,
+      samples: SAMPLES.map(q => ({ label: q, pick: () => this.setState({ query: q, sel: 0 }, () => this.focusFor('search')) })),
+      hasRecent: s.recent.length > 0,
+      recent: s.recent.map(r => ({ ...r, copy: () => this.copy({ isbn: r.isbn, title: r.title, order: '' }) })),
+      clearRecent: () => this.setState({ recent: [] }),
+
+      reviewTotal: s.queue.length,
+      reviewPos: `${pad(s.qIdx + 1)} / ${pad(s.queue.length)}`,
+      reviewOriginal: qLine,
+      reviewQuery: s.reviewQuery, onReviewQuery: e => this.setState({ reviewQuery: e.target.value }),
+      hasReviewVariants: variants.length > 1,
+      reviewVariants: variants.map(v => ({ label: v, selected: s.reviewQuery === v ? true : undefined, pick: () => this.setState({ reviewQuery: v }) })),
+      reviewSummary: `${cand.rows.length} of ${cand.total} matches · ${cand.ms || '—'}`,
+      candidates: cand.rows.map((b, i) => this.resultRow(b, s.reviewQuery, i, -1)),
+      noCandidates: !cand.rows.length,
+      queue, queueEmpty: !queue.length, queueFilter: s.queueFilter, onQueueFilter: e => this.setState({ queueFilter: e.target.value }),
+      prevTitle: () => this.selectTitle((s.qIdx - 1 + s.queue.length) % s.queue.length),
+      nextTitle: () => this.selectTitle((s.qIdx + 1) % s.queue.length),
+      openPaste: () => this.setState({ pasteOpen: true, pasteText: s.queue.join('\n') }),
+      closePaste: () => this.setState({ pasteOpen: false }),
+      onPaste: e => this.setState({ pasteText: e.target.value }),
+      pasteOpen: s.pasteOpen, pasteText: s.pasteText,
+      pasteSaveLabel: `Load ${s.pasteText.split('\n').filter(l => l.trim()).length} titles`,
+      savePaste: () => {
+        const lines = s.pasteText.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length) this.setState({ queue: lines, pasteOpen: false }, () => this.selectTitle(0));
+        else this.setState({ pasteOpen: false });
+      },
+      resetQueue: () => this.setState({ queue: DEFAULT_QUEUE }, () => this.selectTitle(0)),
+
+      kpis: [
+        { label: 'Books packed', value: nfmt(totalPacked) },
+        { label: 'Total scans', value: nfmt(BASE.scans + s.log.length) },
+        { label: 'Duplicates caught', value: nfmt(BASE.dup + sess.dup), tone: 'warn' },
+        { label: 'Not found', value: nfmt(BASE.nf + sess.nf), tone: 'err' }
+      ],
+      orderRows, exportCsv: () => this.exportCsv(),
+
+      logSummary: `${s.log.length} scans this session · ${sess.pack} packed`,
+      logFilters: [['ALL', 'All'], ['PACK', 'Packed'], ['DUPLICATE', 'Duplicate'], ['NOT_FOUND', 'Not found']].map(([id, label]) => ({ label, selected: lf === id ? true : undefined, select: () => this.setState({ logFilter: id }) })),
+      logRows: logList.map(e => ({ time: fmt(e.t), title: e.title || 'Not in catalog', isbn: e.isbn, order: e.order || 'none', orderLabel: e.order || '—', statusType: e.statusType, label: e.statusType === 'PACK' ? (e.total > 1 ? `Packed ${e.copyN}/${e.total}` : 'Packed') : e.statusType === 'DUPLICATE' ? 'Duplicate' : 'Not found' })),
+      logEmpty: !logList.length,
+      clearLabel: s.confirmClear ? 'Confirm clear' : 'Clear log',
+      clearLog: () => {
+        if (!s.confirmClear) { this.setState({ confirmClear: true }); clearTimeout(this.clrT); this.clrT = setTimeout(() => this.setState({ confirmClear: false }), 3000); return; }
+        this.setState({ log: [], packed: {}, confirmClear: false });
+      }
+    };
+  }
+  selectTitle(idx) {
+    const line = this.state.queue[idx] || '';
+    this.setState({ qIdx: idx, reviewQuery: (line.split(',')[0] || line).trim() });
+  }
+}
+</script>
+</body>
+</html>

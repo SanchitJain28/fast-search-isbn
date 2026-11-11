@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+const root = fileURLToPath(new URL('../', import.meta.url));
+if (fs.existsSync(path.join(root, '.env.local'))) process.loadEnvFile(path.join(root, '.env.local'));
+const source = process.env.PACKING_DB || path.join(root, 'data/packing.sqlite');
+if (!fs.existsSync(source)) throw new Error('No packing database exists yet');
+const output = path.resolve(process.argv[2] || path.join(process.env.PACKING_BACKUP_DIR || path.join(root, 'data/backups'), `packing-${new Date().toISOString().replace(/[:.]/g, '-')}.sqlite`));
+fs.mkdirSync(path.dirname(output), { recursive: true });
+const db = new DatabaseSync(source);
+db.exec(`PRAGMA busy_timeout=5000; VACUUM INTO '${output.replace(/'/g, "''")}'`);
+db.close();
+fs.copyFileSync(path.join(root, 'public/master.json'), `${output}.master.json`);
+console.log(`Consistent database backup and matching catalog saved to ${output}`);

@@ -1,93 +1,13 @@
 import React, { useState } from 'react';
-import { FileSpreadsheet, Trash2, CheckCircle2, ChevronDown } from 'lucide-react';
-
-export default function ScanLogView({ scanLog = [], onClear, onExportExcel }) {
+import { Button, Chip, Stack, Paper, Typography, TableContainer, Table, TableHead, TableBody, TableRow, TableCell } from '@mui/material';
+export default function ScanLogView({ stationNames = {}, scanLog = [], onExportExcel, onVoidScan }) {
   const [displayCount, setDisplayCount] = useState(100);
-
-  if (scanLog.length === 0) {
-    return (
-      <div className="empty-state">
-        <CheckCircle2 className="empty-icon" style={{ color: 'var(--accent-emerald)' }} />
-        <div className="empty-title">No books packed yet in this session</div>
-        <div className="empty-subtitle">
-          Search for any title in the Search tab and click <strong>"Mark packed"</strong> or copy ISBNs.
-        </div>
-      </div>
-    );
-  }
-
-  const visibleScans = scanLog.slice(0, displayCount);
-
-  return (
-    <div className="scan-log-container">
-      <div className="results-header">
-        <div>
-          Total Scans: <strong>{scanLog.length}</strong>
-          {scanLog.length > displayCount && (
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px' }}>
-              (Showing latest {displayCount})
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            className="icon-btn"
-            onClick={onExportExcel}
-            style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', gap: '6px' }}
-          >
-            <FileSpreadsheet size={14} /> Export Excel
-          </button>
-          <button
-            className="icon-btn"
-            onClick={onClear}
-            style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', gap: '6px', color: 'var(--accent-rose)' }}
-          >
-            <Trash2 size={14} /> Clear Log
-          </button>
-        </div>
-      </div>
-
-      <div className="results-list">
-        {visibleScans.map((scan) => (
-          <div key={scan.id} className="result-card">
-            <div className="card-left">
-              <div className="card-title-row">
-                <span className="card-title">{scan.title || 'Unknown Title'}</span>
-              </div>
-              <div className="card-meta-row">
-                <span className={`order-badge order-${String(scan.order || '').toLowerCase()}`}>
-                  Order {scan.order || '—'}
-                </span>
-                <span className="isbn-pill">{scan.isbn}</span>
-                <span className="copy-count-badge">• {scan.timestamp}</span>
-              </div>
-              <div className={`action-status-banner ${scan.statusType === 'DUPLICATE' ? 'status-dup' : 'status-pack'}`}>
-                {scan.status}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {scanLog.length > displayCount && (
-          <div style={{ textAlign: 'center', margin: '16px 0' }}>
-            <button
-              className="icon-btn"
-              onClick={() => setDisplayCount((prev) => prev + 100)}
-              style={{
-                width: 'auto',
-                padding: '8px 16px',
-                fontSize: '13px',
-                margin: '0 auto',
-                background: 'var(--card-bg)',
-                border: '1px solid var(--border-color)',
-                gap: '6px'
-              }}
-            >
-              <ChevronDown size={16} /> Load next 100 scans ({scanLog.length - displayCount} remaining)
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const [filter, setFilter] = useState('ALL');
+  const filtered = filter === 'ALL' ? scanLog : scanLog.filter(scan => scan.statusType === filter);
+  return <Paper sx={{ p: 2 }}><div className="results-header"><Typography sx={{ fontWeight: 500 }}>Scan log · {scanLog.length} attempts</Typography><Button variant="outlined" onClick={onExportExcel}>Export Excel</Button></div>
+    <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 2, flexWrap: 'wrap' }}>{[['ALL', 'All'], ['PACK', 'Packed'], ['DUPLICATE', 'Duplicate'], ['NOT_FOUND', 'Not found'], ['REVIEW', 'Review'], ['VOID', 'Void']].map(([id, label]) => <Chip key={id} label={label} size="small" color={filter === id ? 'primary' : 'default'} variant={filter === id ? 'filled' : 'outlined'} onClick={() => { setFilter(id); setDisplayCount(100); }} />)}</Stack>
+    <TableContainer><Table size="small" aria-label="Scan history"><TableHead><TableRow>{['Time / station', 'Title / ISBN', 'Order', 'Result', 'Action'].map(label => <TableCell key={label}>{label}</TableCell>)}</TableRow></TableHead><TableBody>{filtered.slice(0, displayCount).map(scan => <TableRow key={scan.id} sx={{ opacity: scan.statusType === 'VOID' ? .6 : 1 }}><TableCell sx={{ whiteSpace: 'nowrap' }}>{scan.timestamp}<Typography variant="caption" sx={{ display: 'block' }} color="text.secondary">{stationNames[scan.station] || scan.station}</Typography></TableCell><TableCell sx={{ minWidth: 200 }}><Typography variant="body2" sx={{ textDecoration: scan.statusType === 'VOID' ? 'line-through' : undefined }}>{scan.title || 'Not in catalog'}</Typography><Typography variant="caption" sx={{ fontFamily: 'Roboto Mono, monospace' }} color="text.secondary">{scan.isbn}</Typography></TableCell><TableCell>{scan.order || '—'}</TableCell><TableCell sx={{ minWidth: 140 }}>{scan.status}</TableCell><TableCell>{scan.statusType !== 'VOID' && onVoidScan && <Button color="error" onClick={() => { if (window.confirm(`Remove ${scan.title || scan.isbn} (Order ${scan.order || '—'}) from packing? The allocated copy will be released.`)) onVoidScan(scan); }}>Void</Button>}</TableCell></TableRow>)}</TableBody></Table></TableContainer>
+    {!filtered.length && <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', p: 5 }}>No {filter === 'ALL' ? '' : filter.toLowerCase().replaceAll('_', ' ')} scans recorded.</Typography>}
+    {filtered.length > displayCount && <Button onClick={() => setDisplayCount(count => count + 100)} sx={{ mt: 2 }}>Load next 100 ({filtered.length - displayCount} remaining)</Button>}
+  </Paper>;
 }

@@ -1,3 +1,4 @@
+import { Button, Paper } from '@mui/material';
 import React, { useState } from 'react';
 import { Copy, Check, Hash, PackageCheck, CheckCircle2 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
@@ -57,22 +58,18 @@ export default function ResultCard({
     setTimeout(() => setCopied(false), 1200);
   };
 
-  const handleMarkPacked = (e) => {
+  const handleMarkPacked = async (e) => {
     e.stopPropagation();
     if (isFullyPacked || isLocked || isProcessingPack) return;
     setIsProcessingPack(true);
-    if (onMarkPacked) {
-      const res = onMarkPacked(item);
-      setLastAction(res);
-      soundFx.copySuccess();
-    }
-    setTimeout(() => {
-      setIsProcessingPack(false);
-    }, 500);
+    try {
+      if (onMarkPacked) setLastAction(await onMarkPacked(item));
+    } finally { setIsProcessingPack(false); }
+
   };
 
   return (
-    <div
+    <Paper
       className={`result-card ${isSelected ? 'selected' : ''} ${isFullyPacked ? 'card-fully-packed' : ''} ${isLocked ? 'card-locked' : ''}`}
       onClick={!isLocked ? handleCopy : undefined}
       title={isLocked ? 'Action locked until synced' : 'Click card to copy ISBN'}
@@ -119,7 +116,7 @@ export default function ResultCard({
         </div>
 
         {lastAction && (
-          <div className={`action-status-banner ${lastAction.statusType === 'DUPLICATE' ? 'status-dup' : 'status-pack'}`}>
+          <div className={`action-status-banner ${lastAction.statusType !== 'PACK' ? 'status-dup' : 'status-pack'}`}>
             {lastAction.status}
           </div>
         )}
@@ -128,11 +125,11 @@ export default function ResultCard({
       <div className="card-actions">
         {/* Mark Packed Button */}
         {isFullyPacked ? (
-          <button className="mark-packed-btn done" disabled title="This book is already fully packed">
+          <Button variant="outlined" className="mark-packed-btn done" disabled title="This book is already fully packed">
             <CheckCircle2 size={15} /> Already packed ✓
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button variant="outlined"
             className="mark-packed-btn"
             onClick={handleMarkPacked}
             disabled={isLocked || isProcessingPack}
@@ -143,11 +140,11 @@ export default function ResultCard({
             {totalCopies > 1 && packedCount > 0
               ? `Pack copy ${packedCount + 1} of ${totalCopies}`
               : 'Mark packed'}
-          </button>
+          </Button>
         )}
 
         {/* Copy ISBN Button */}
-        <button
+        <Button variant="outlined"
           className={`copy-isbn-btn ${copied ? 'copied' : ''}`}
           onClick={handleCopy}
           disabled={isLocked}
@@ -163,8 +160,8 @@ export default function ResultCard({
               <Copy size={15} /> Copy ISBN
             </>
           )}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Paper>
   );
 }
